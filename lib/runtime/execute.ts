@@ -1,4 +1,4 @@
-import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig } from '@/lib/types'
+import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig, TokenUsage } from '@/lib/types'
 import { topoSort } from './topoSort'
 import { handleInput } from './handlers/input'
 import { handlePrompt } from './handlers/prompt'
@@ -57,12 +57,17 @@ export async function execute(
       }
 
       outputs.set(node.id, outContext)
+
+      // LLM nodes return usage + model for analytics
+      const cfg = node.data.config as Record<string, unknown> | undefined
       emit({
-        type: 'node-end',
-        nodeId: node.id,
-        status: 'done',
+        type:      'node-end',
+        nodeId:    node.id,
+        status:    'done',
         durationMs: Date.now() - startMs,
-        output: outContext.output,
+        output:    outContext.output,
+        ...(outContext.usage ? { usage: outContext.usage as TokenUsage } : {}),
+        ...(node.type === 'llm' ? { model: (cfg?.model as string | undefined) ?? 'claude-sonnet-4-6' } : {}),
       })
     } catch (err) {
       emit({

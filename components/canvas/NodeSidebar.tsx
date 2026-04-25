@@ -319,7 +319,16 @@ function InputForm({ config, onSave }: { config: Record<string, unknown>; onSave
 
 // ─── LLM form ─────────────────────────────────────────────────────────────────
 
-function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: (v: LLMForm) => void }) {
+const DEFAULT_OUTPUT_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: {
+    result:    { type: 'string', description: 'The main answer or result' },
+    reasoning: { type: 'string', description: 'Step-by-step reasoning' },
+  },
+  required: ['result'],
+}, null, 2)
+
+function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: (v: Record<string, unknown>) => void }) {
   const { control, handleSubmit, watch } = useForm<LLMForm>({
     resolver: zodResolver(llmSchema),
     defaultValues: {
@@ -333,8 +342,31 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
   const temp      = watch('temperature')
   const maxTokens = watch('maxTokens')
 
+  const [structuredOutput, setStructuredOutput] = useState(Boolean(config.structuredOutput))
+  const [schemaStr, setSchemaStr]               = useState(
+    config.outputSchema ? JSON.stringify(config.outputSchema, null, 2) : DEFAULT_OUTPUT_SCHEMA,
+  )
+  const [schemaError, setSchemaError] = useState<string | null>(null)
+
+  function handleSave(formValues: LLMForm) {
+    if (structuredOutput) {
+      try {
+        JSON.parse(schemaStr)
+        setSchemaError(null)
+      } catch {
+        setSchemaError('Invalid JSON — fix the schema before applying.')
+        return
+      }
+    }
+    onSave({
+      ...formValues,
+      structuredOutput,
+      ...(structuredOutput ? { outputSchema: JSON.parse(schemaStr) } : {}),
+    })
+  }
+
   return (
-    <form onSubmit={handleSubmit(onSave)} className="space-y-5">
+    <form onSubmit={handleSubmit(handleSave)} className="space-y-5">
       <FieldRow label="Model">
         <Controller
           name="model"
@@ -399,6 +431,74 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
           )}
         />
       </FieldRow>
+
+      {/* ── Structured Output ────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-white/8 bg-white/2 overflow-hidden">
+        {/* Toggle row */}
+        <div className="flex items-center justify-between px-3.5 py-3">
+          <div className="space-y-0.5">
+            <p className="text-[11px] font-semibold text-white/70">Structured Output</p>
+            <p className="text-[10px] text-white/30">Enforce a JSON schema on the response</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={structuredOutput}
+            onClick={() => { setStructuredOutput((v) => !v); setSchemaError(null) }}
+            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-all ${
+              structuredOutput ? 'border-blue-500/50 bg-blue-500/30' : 'border-white/15 bg-white/8'
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full shadow-sm transition-transform ${
+              structuredOutput ? 'translate-x-[18px] bg-blue-300' : 'translate-x-0.5 bg-white/60'
+            }`} />
+          </button>
+        </div>
+
+        {/* Schema editor — shown when enabled */}
+        {structuredOutput && (
+          <div className="border-t border-white/8">
+            <div className="px-3.5 pt-3 pb-1 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold tracking-widest text-white/40 uppercase">Output Schema</span>
+                <span className="text-[10px] text-white/25 font-mono">JSON Schema</span>
+              </div>
+            </div>
+            <div className={`border-t ${schemaError ? 'border-red-500/40' : 'border-white/6'}`}>
+              <MonacoEditor
+                height={220}
+                language="json"
+                theme="vs-dark"
+                value={schemaStr}
+                onChange={(v) => { setSchemaStr(v ?? ''); setSchemaError(null) }}
+                options={{
+                  minimap:              { enabled: false },
+                  fontSize:             11,
+                  lineNumbers:          'off',
+                  wordWrap:             'on',
+                  scrollBeyondLastLine: false,
+                  padding:              { top: 10, bottom: 10 },
+                  renderLineHighlight:  'none',
+                  formatOnPaste:        true,
+                }}
+              />
+            </div>
+            {schemaError && (
+              <p className="px-3.5 py-2 text-[11px] text-red-400 font-mono border-t border-red-500/20">
+                {schemaError}
+              </p>
+            )}
+            <div className="px-3.5 py-2.5 border-t border-white/6">
+              <p className="text-[10px] text-white/25 leading-relaxed">
+                Define the exact shape of the JSON object the model will return.
+                Use <span className="font-mono text-white/40">type</span>,{' '}
+                <span className="font-mono text-white/40">properties</span>, and{' '}
+                <span className="font-mono text-white/40">required</span> fields.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       <Button
         type="submit"
@@ -583,6 +683,24 @@ function fmtDuration(ms?: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
+// ─── Analytics stat row ───────────────────────────────────────────────────────
+
+function StatRow({ label, value, mono = false, valueClass }: {
+  label:       string
+  value:       string
+  mono?:       boolean
+  valueClass?: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-[11px] text-white/35 shrink-0">{label}</span>
+      <span className={`text-[11px] truncate text-right ${mono ? 'font-mono' : ''} ${valueClass ?? 'text-white/60'}`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
 // ─── Output history panel ─────────────────────────────────────────────────────
 
 function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
@@ -668,48 +786,133 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
       {/* Detail modal */}
       <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null) }}>
         <DialogContent className="max-w-2xl bg-[#0f0f11] border border-white/10 p-0 gap-0">
+
+          {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/8">
-            <DialogTitle className="text-sm font-semibold text-white/90 flex items-center gap-3">
-              <span className="w-2 h-2 rounded-full bg-green-400" />
-              Output · Run {selected ? history.length - history.indexOf(selected) : ''}
-            </DialogTitle>
-            <DialogDescription className="sr-only">Full output from this run</DialogDescription>
-            <div className="flex items-center gap-3 mt-1">
-              {selected?.durationMs && (
-                <span className="text-[11px] text-white/30 font-mono">{fmtDuration(selected.durationMs)}</span>
-              )}
-              <span className="text-[11px] text-white/30 font-mono">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-sm font-semibold text-white/90 flex items-center gap-2.5">
+                <span className="w-2 h-2 rounded-full bg-green-400" />
+                Output · Run {selected ? history.length - history.indexOf(selected) : ''}
+                {selected?.mode === 'structured' && (
+                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/15 text-violet-300 border-violet-500/25 uppercase tracking-wide ml-1">
+                    JSON
+                  </span>
+                )}
+              </DialogTitle>
+              <span className="text-[11px] text-white/25 font-mono">
                 {selected ? new Date(selected.timestamp).toLocaleString() : ''}
               </span>
-              <span className="text-[11px] text-white/20 font-mono ml-auto">
-                {selected?.output.length ?? 0} chars
-              </span>
             </div>
+            <DialogDescription className="sr-only">Full output and analytics for this run</DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="max-h-[60vh]">
+          {/* Analytics grid */}
+          {selected && (
+            <div className="px-6 py-4 border-b border-white/8 grid grid-cols-2 gap-x-8 gap-y-4">
+
+              {/* Left column — model & timing */}
+              <div className="space-y-3">
+                <p className="text-[9px] font-semibold tracking-widest text-white/25 uppercase mb-1">Model & Timing</p>
+
+                <StatRow label="Model" value={selected.model ?? '—'} mono />
+                <StatRow label="Mode"
+                  value={selected.mode === 'structured' ? 'Structured JSON' : 'Text Streaming'}
+                  valueClass={selected.mode === 'structured' ? 'text-violet-300' : 'text-[#00ff88]/70'}
+                />
+                <StatRow label="Total Duration"   value={fmtDuration(selected.durationMs) || '—'} mono />
+                <StatRow label="Time to 1st Token"
+                  value={selected.usage?.firstTokenMs != null ? `${selected.usage.firstTokenMs}ms` : '—'}
+                  mono
+                />
+                {selected.usage && selected.durationMs && selected.usage.firstTokenMs != null && (
+                  <StatRow
+                    label="Generation Rate"
+                    value={(() => {
+                      const genMs = selected.durationMs - selected.usage!.firstTokenMs!
+                      if (genMs <= 0) return '—'
+                      const tps = Math.round((selected.usage!.completionTokens / genMs) * 1000)
+                      return `${tps} tok/s`
+                    })()}
+                    mono
+                  />
+                )}
+              </div>
+
+              {/* Right column — token usage */}
+              <div className="space-y-3">
+                <p className="text-[9px] font-semibold tracking-widest text-white/25 uppercase mb-1">Token Usage</p>
+
+                <StatRow label="Prompt (sent)"
+                  value={selected.usage?.promptTokens != null ? selected.usage.promptTokens.toLocaleString() : '—'}
+                  mono
+                  valueClass="text-blue-300/70"
+                />
+                <StatRow label="Completion (received)"
+                  value={selected.usage?.completionTokens != null ? selected.usage.completionTokens.toLocaleString() : '—'}
+                  mono
+                  valueClass="text-[#00ff88]/70"
+                />
+                <StatRow label="Total Tokens"
+                  value={selected.usage?.totalTokens != null ? selected.usage.totalTokens.toLocaleString() : '—'}
+                  mono
+                  valueClass="text-white/60"
+                />
+                <div className="border-t border-white/6 pt-3">
+                  <StatRow label="Output Length"
+                    value={`${selected.output.length.toLocaleString()} chars`}
+                    mono
+                  />
+                </div>
+              </div>
+
+              {/* Token ratio bar */}
+              {selected.usage && selected.usage.totalTokens > 0 && (
+                <div className="col-span-2 space-y-1.5">
+                  <div className="flex justify-between text-[10px] font-mono text-white/25">
+                    <span>Prompt {Math.round((selected.usage.promptTokens / selected.usage.totalTokens) * 100)}%</span>
+                    <span>Completion {Math.round((selected.usage.completionTokens / selected.usage.totalTokens) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/6 overflow-hidden flex">
+                    <div
+                      className="h-full bg-blue-500/50 rounded-l-full transition-all"
+                      style={{ width: `${(selected.usage.promptTokens / selected.usage.totalTokens) * 100}%` }}
+                    />
+                    <div
+                      className="h-full bg-[#00ff88]/40 rounded-r-full transition-all"
+                      style={{ width: `${(selected.usage.completionTokens / selected.usage.totalTokens) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Output text */}
+          <ScrollArea className="max-h-[40vh]">
             <div className="px-6 py-5">
-              <pre className="text-sm text-white/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
+              <pre className={`text-sm font-mono whitespace-pre-wrap break-words leading-relaxed ${
+                selected?.mode === 'structured' ? 'text-violet-200/80' : 'text-white/80'
+              }`}>
                 {selected?.output}
               </pre>
             </div>
           </ScrollArea>
 
-          <div className="px-6 py-3 border-t border-white/8 flex justify-between items-center">
-            <span className="text-[11px] text-white/20">
-              {selected ? new Date(selected.timestamp).toLocaleDateString() : ''}
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-white/8 flex items-center justify-between">
+            <span className="text-[11px] text-white/20 font-mono">
+              {selected ? new Date(selected.timestamp).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : ''}
             </span>
             <Button
               size="sm"
               variant="outline"
               className="h-7 text-xs border-white/10 text-white/50 hover:bg-white/5 hover:text-white/80"
-              onClick={() => {
-                if (selected) navigator.clipboard.writeText(selected.output)
-              }}
+              onClick={() => { if (selected) navigator.clipboard.writeText(selected.output) }}
             >
-              Copy
+              Copy output
             </Button>
           </div>
+
         </DialogContent>
       </Dialog>
     </>

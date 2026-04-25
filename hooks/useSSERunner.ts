@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react'
 import { useStore } from '@/store'
-import type { FileData, FlowGraph } from '@/lib/types'
+import type { FileData, FlowGraph, TokenUsage } from '@/lib/types'
 
 export function useSSERunner() {
   const esRef = useRef<EventSource | null>(null)
@@ -54,20 +54,38 @@ export function useSSERunner() {
       appendNodeToken(nodeId, token)
     })
 
+    // Structured output: each event replaces (not appends) the running output
+    es.addEventListener('node-replace', (e) => {
+      const { nodeId, output } = JSON.parse(e.data) as { nodeId: string; output: string }
+      setRunStatus(nodeId, 'running', output, { stage: 'Structuring…' })
+    })
+
     es.addEventListener('node-end', (e) => {
-      const { nodeId, status, durationMs, output } = JSON.parse(e.data) as {
-        nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string
+      const { nodeId, status, durationMs, output, usage, model } = JSON.parse(e.data) as {
+        nodeId:     string
+        status:     'done' | 'error'
+        durationMs: number
+        output?:    string
+        usage?:     TokenUsage
+        model?:     string
       }
       setRunStatus(nodeId, status, output, {
         durationMs,
         stage: status === 'done' ? 'Done' : 'Error',
       })
       if (status === 'done' && output) {
+        // Detect mode from the node's current config
+        const nodeData = useStore.getState().nodes.find((n) => n.id === nodeId)?.data
+        const mode = nodeData?.config?.structuredOutput ? 'structured' : 'text'
+
         appendRunHistory(nodeId, {
-          id:         crypto.randomUUID(),
+          id:        crypto.randomUUID(),
           output,
-          timestamp:  Date.now(),
+          timestamp: Date.now(),
           durationMs,
+          model,
+          mode,
+          usage,
         })
       }
     })

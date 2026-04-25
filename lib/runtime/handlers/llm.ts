@@ -1,8 +1,8 @@
-import { streamText } from 'ai'
+import { streamText, streamObject, jsonSchema } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { ModelMessage } from 'ai'
-import type { EmitFn, LLMNodeConfig, NodeContext } from '@/lib/types'
+import type { EmitFn, LLMNodeConfig, NodeContext, TokenUsage } from '@/lib/types'
 
 function resolveModel(config: LLMNodeConfig) {
   const model = config.model ?? 'claude-sonnet-4-6'
@@ -29,6 +29,55 @@ export async function handleLLM(
     ? context.messages
     : [{ role: 'user', content: context.output ?? context.input ?? '' }]
 
+  // ── Structured output path ─────────────────────────────────────────────────
+  if (cfg.structuredOutput && cfg.outputSchema) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schema = jsonSchema(cfg.outputSchema as any)
+    const t0 = Date.now()
+    let firstTokenMs: number | undefined
+
+    const result = streamObject({
+      model: resolveModel(cfg),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      schema: schema as any,
+      system: cfg.systemPrompt,
+      messages,
+      temperature: cfg.temperature,
+      experimental_telemetry: {
+        isEnabled: Boolean(process.env.LANGFUSE_SECRET_KEY),
+        functionId: `node:${nodeId}`,
+      },
+    })
+
+    for await (const partial of result.partialObjectStream) {
+      if (firstTokenMs === undefined) firstTokenMs = Date.now() - t0
+      emit({ type: 'node-replace', nodeId, output: JSON.stringify(partial, null, 2) })
+    }
+
+    const [finalObject, rawUsage] = await Promise.all([result.object, result.usage])
+    const output = JSON.stringify(finalObject, null, 2)
+
+    const promptTokens     = rawUsage.inputTokens  ?? 0
+    const completionTokens = rawUsage.outputTokens ?? 0
+    const usage: TokenUsage = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      firstTokenMs,
+    }
+
+    return {
+      ...context,
+      output,
+      usage,
+      messages: [...messages, { role: 'assistant', content: output }],
+    }
+  }
+
+  // ── Streaming text path ────────────────────────────────────────────────────
+  const t0 = Date.now()
+  let firstTokenMs: number | undefined
+
   const result = streamText({
     model: resolveModel(cfg),
     system: cfg.systemPrompt,
@@ -43,16 +92,25 @@ export async function handleLLM(
 
   let fullText = ''
   for await (const token of result.textStream) {
+    if (firstTokenMs === undefined) firstTokenMs = Date.now() - t0
     fullText += token
     emit({ type: 'node-delta', nodeId, token })
+  }
+
+  const rawUsage         = await result.usage
+  const promptTokens     = rawUsage.inputTokens  ?? 0
+  const completionTokens = rawUsage.outputTokens ?? 0
+  const usage: TokenUsage = {
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    firstTokenMs,
   }
 
   return {
     ...context,
     output: fullText,
-    messages: [
-      ...messages,
-      { role: 'assistant', content: fullText },
-    ],
+    usage,
+    messages: [...messages, { role: 'assistant', content: fullText }],
   }
 }

@@ -50,11 +50,13 @@ export interface FileData {
 // ─── LLM node ─────────────────────────────────────────────────────────────────
 
 export interface LLMNodeConfig {
-  provider: 'anthropic' | 'openai'
-  model?: string
-  systemPrompt?: string
-  temperature?: number
+  provider:         'anthropic' | 'openai'
+  model?:           string
+  systemPrompt?:    string
+  temperature?:     number
   maxOutputTokens?: number
+  structuredOutput?: boolean
+  outputSchema?:    Record<string, unknown>   // JSON Schema passed to jsonSchema()
 }
 
 export interface PromptNodeConfig {
@@ -67,18 +69,29 @@ export type NodeConfig =
   | PromptNodeConfig
   | Record<string, unknown>
 
+// ─── Token / timing analytics ────────────────────────────────────────────────
+
+export interface TokenUsage {
+  promptTokens:     number
+  completionTokens: number
+  totalTokens:      number
+  firstTokenMs?:    number   // ms from LLM request start to first token
+}
+
 export interface NodeContext {
   input?:    string
   output?:   string
   messages?: ModelMessage[]
   fileData?: FileData
+  usage?:    TokenUsage
   [key: string]: unknown
 }
 
 export type SSEEvent =
   | { type: 'node-start';    nodeId: string; timestamp: number }
   | { type: 'node-delta';    nodeId: string; token: string }
-  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string }
+  | { type: 'node-replace';  nodeId: string; output: string }   // replaces (not appends) runOutput
+  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string }
   | { type: 'run-complete';  runId: string;  status: 'done' | 'error'; error?: string }
 
 export type EmitFn = (event: SSEEvent) => void

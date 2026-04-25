@@ -16,14 +16,25 @@ function fmt(ms?: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
+function isJsonOutput(str: string): boolean {
+  const s = str.trimStart()
+  return s.startsWith('{') || s.startsWith('[')
+}
+
 function LLMNode({ data, selected }: NodeProps) {
-  const d       = data as NodeData
-  const status  = d.runStatus ?? 'idle'
-  const border  = statusBorder[status]
-  const selRing = selected ? 'ring-1 ring-blue-400/60' : ''
-  const model   = (d.config?.model as string | undefined) ?? 'claude-sonnet-4-6'
-  const meta    = d.runMeta
-  const isThinking = status === 'running' && !d.runOutput
+  const d              = data as NodeData
+  const status         = d.runStatus ?? 'idle'
+  const border         = statusBorder[status]
+  const selRing        = selected ? 'ring-1 ring-blue-400/60' : ''
+  const model          = (d.config?.model as string | undefined) ?? 'claude-sonnet-4-6'
+  const meta           = d.runMeta
+  const isStructured   = Boolean(d.config?.structuredOutput)
+  const isThinking     = status === 'running' && !d.runOutput
+  const isStructuring  = status === 'running' && isStructured && Boolean(d.runOutput)
+  const outputIsJson   = d.runOutput ? isJsonOutput(d.runOutput) : false
+
+  // Running label shown in footer
+  const runningLabel = isStructured ? 'Structuring…' : 'Streaming'
 
   return (
     <div className={`w-56 px-4 py-3 bg-[#131316] rounded-xl border shadow-lg transition-shadow duration-300 ${border} ${selRing}`}>
@@ -38,6 +49,11 @@ function LLMNode({ data, selected }: NodeProps) {
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-400" />
           <span className="text-xs font-semibold text-white/80 uppercase tracking-widest">LLM</span>
+          {isStructured && (
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/15 text-violet-300 border-violet-500/25 uppercase tracking-wide">
+              JSON
+            </span>
+          )}
         </div>
         {status === 'running' && (
           <span className="w-2 h-2 rounded-full bg-[#00ff88] animate-pulse shadow-[0_0_6px_#00ff88]" />
@@ -53,7 +69,7 @@ function LLMNode({ data, selected }: NodeProps) {
       {/* Model name */}
       <p className="text-[11px] text-white/30 mb-2 truncate font-mono">{model}</p>
 
-      {/* Thinking state — no tokens yet */}
+      {/* Thinking state — no output yet */}
       {isThinking && (
         <div className="flex items-center gap-2 py-1">
           <div className="flex gap-1">
@@ -61,18 +77,30 @@ function LLMNode({ data, selected }: NodeProps) {
             <span className="w-1.5 h-1.5 rounded-full bg-[#00ff88] animate-bounce [animation-delay:120ms]" />
             <span className="w-1.5 h-1.5 rounded-full bg-[#00ff88] animate-bounce [animation-delay:240ms]" />
           </div>
-          <span className="text-[11px] text-[#00ff88]/60 font-mono">Thinking…</span>
+          <span className="text-[11px] text-[#00ff88]/60 font-mono">
+            {isStructured ? 'Generating schema…' : 'Thinking…'}
+          </span>
         </div>
       )}
 
-      {/* Streaming / done output */}
+      {/* Output block */}
       {d.runOutput && (
-        <div className="bg-black/40 rounded-lg px-3 py-2 max-h-28 overflow-y-auto border border-white/5">
-          <span className="font-mono text-xs text-white/70 break-words whitespace-pre-wrap leading-relaxed">
+        <div className={`rounded-lg max-h-28 overflow-y-auto border ${
+          outputIsJson
+            ? 'bg-violet-950/30 border-violet-500/15 px-2.5 py-2'
+            : 'bg-black/40 border-white/5 px-3 py-2'
+        }`}>
+          <span className={`font-mono text-xs break-words whitespace-pre-wrap leading-relaxed ${
+            outputIsJson ? 'text-violet-200/70' : 'text-white/70'
+          }`}>
             {d.runOutput}
           </span>
-          {status === 'running' && (
+          {/* Cursor for text streaming; spinner ring for structured */}
+          {status === 'running' && !isStructured && (
             <span className="inline-block w-1 h-3 bg-[#00ff88] animate-pulse ml-0.5 align-text-bottom" />
+          )}
+          {isStructuring && (
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-1 align-middle" />
           )}
         </div>
       )}
@@ -88,7 +116,7 @@ function LLMNode({ data, selected }: NodeProps) {
       {(status === 'done' || (status === 'running' && d.runOutput)) && (
         <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-white/5">
           <span className="text-[10px] text-white/20 font-mono">
-            {status === 'running' ? 'Streaming' : 'Generated'}
+            {status === 'running' ? runningLabel : (isStructured ? 'Structured' : 'Generated')}
           </span>
           <span className="text-[10px] text-white/30 font-mono tabular-nums">
             {d.runOutput?.length ?? 0} chars

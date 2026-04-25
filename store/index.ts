@@ -10,6 +10,7 @@ import {
   type EdgeChange,
   type Connection,
 } from '@xyflow/react'
+import type { TokenUsage } from '@/lib/types'
 
 // ─── Port & Node types ────────────────────────────────────────────────────────
 
@@ -23,10 +24,13 @@ export interface Port {
 }
 
 export interface RunHistoryEntry {
-  id:          string
-  output:      string
-  timestamp:   number   // Date.now()
-  durationMs?: number
+  id:            string
+  output:        string
+  timestamp:     number        // Date.now()
+  durationMs?:   number        // total wall time
+  model?:        string        // model identifier, e.g. "claude-sonnet-4-6"
+  mode?:         'text' | 'structured'
+  usage?:        TokenUsage    // token counts + firstTokenMs
 }
 
 export interface RunMeta {
