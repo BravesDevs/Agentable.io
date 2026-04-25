@@ -28,6 +28,27 @@ export interface FlowGraph {
   edges: GraphEdge[]
 }
 
+// ─── Input node ───────────────────────────────────────────────────────────────
+
+export type InputType = 'text' | 'file' | 'image' | 'json' | 'url'
+
+export interface InputNodeConfig {
+  inputType:          InputType
+  maxSizeKB?:         number
+  allowedExtensions?: string[]   // for file type
+  allowedFormats?:    string[]   // for image type
+}
+
+// File/image payload sent from client → API → executor
+export interface FileData {
+  name:     string
+  mimeType: string
+  size:     number
+  data:     string   // raw base64 (no data: prefix)
+}
+
+// ─── LLM node ─────────────────────────────────────────────────────────────────
+
 export interface LLMNodeConfig {
   provider: 'anthropic' | 'openai'
   model?: string
@@ -41,14 +62,16 @@ export interface PromptNodeConfig {
 }
 
 export type NodeConfig =
+  | InputNodeConfig
   | LLMNodeConfig
   | PromptNodeConfig
   | Record<string, unknown>
 
 export interface NodeContext {
-  input?: string
-  output?: string
+  input?:    string
+  output?:   string
   messages?: ModelMessage[]
+  fileData?: FileData
   [key: string]: unknown
 }
 

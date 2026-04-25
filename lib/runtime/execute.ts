@@ -1,4 +1,4 @@
-import type { EmitFn, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig } from '@/lib/types'
+import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig } from '@/lib/types'
 import { topoSort } from './topoSort'
 import { handleInput } from './handlers/input'
 import { handlePrompt } from './handlers/prompt'
@@ -9,6 +9,7 @@ export async function execute(
   graph: FlowGraph,
   userInput: string,
   emit: EmitFn,
+  fileData?: FileData,
 ): Promise<string> {
   const sorted = topoSort(graph.nodes, graph.edges)
 
@@ -27,7 +28,7 @@ export async function execute(
 
     const inContext: NodeContext = parentContexts.reduce<NodeContext>(
       (acc, ctx) => ({ ...acc, ...ctx }),
-      { input: userInput },
+      { input: userInput, ...(fileData ? { fileData } : {}) },
     )
 
     try {

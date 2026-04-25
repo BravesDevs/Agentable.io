@@ -1,4 +1,3 @@
-// This file is intentionally empty.
-// The canvas page lives at app/page.tsx to avoid duplicate route conflicts.
-// Next.js route groups (canvas) are used for file organization only.
-export {}
+// Route-group placeholder — app/page.tsx serves "/" and takes precedence.
+// Next.js requires a default export from any page.tsx file.
+export default function CanvasSlot() { return null }

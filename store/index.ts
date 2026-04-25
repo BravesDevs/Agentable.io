@@ -22,14 +22,31 @@ export interface Port {
   type: PortType
 }
 
+export interface RunHistoryEntry {
+  id:          string
+  output:      string
+  timestamp:   number   // Date.now()
+  durationMs?: number
+}
+
+export interface RunMeta {
+  charCount?:  number   // chars streamed so far (LLM)
+  durationMs?: number   // wall time for the node (set on node-end)
+  stage?:      string   // human label: "Thinking…" | "Streaming" | "Done"
+  httpStatus?: number   // HTTP response code (Tool nodes)
+  httpError?:  string   // error message
+}
+
 export interface NodeData {
   label:     string
   nodeType:  NodeKind
   config:    Record<string, unknown>
   inputs:    Port[]
   outputs:   Port[]
-  runStatus?: RunStatus
-  runOutput?: string
+  runStatus?:  RunStatus
+  runOutput?:  string
+  runMeta?:    RunMeta
+  runHistory?: RunHistoryEntry[]
   [key: string]: unknown   // React Flow requires this on NodeData
 }
 
@@ -59,8 +76,9 @@ interface Actions {
   loadGraph:      (nodes: AgentNode[], edges: AgentEdge[]) => void
   // run
   setRunId:          (id: string | null) => void
-  setRunStatus:      (nodeId: string, status: RunStatus, output?: string) => void
+  setRunStatus:      (nodeId: string, status: RunStatus, output?: string, meta?: RunMeta) => void
   appendNodeToken:   (nodeId: string, token: string) => void
+  appendRunHistory:  (nodeId: string, entry: RunHistoryEntry) => void
   resetRun:          () => void
   // ui
   setSelectedNode: (id: string | null) => void
@@ -85,7 +103,13 @@ export const useStore = create<State & Actions>()((set) => ({
     set((s) => ({ edges: applyEdgeChanges(changes, s.edges) })),
 
   onConnect: (connection) =>
-    set((s) => ({ edges: addEdge({ ...connection, animated: false }, s.edges) })),
+    set((s) => ({
+      edges: addEdge({
+        ...connection,
+        animated: true,
+        style: { stroke: '#00ff88', strokeWidth: 1.5, opacity: 0.7 },
+      }, s.edges),
+    })),
 
   addNode: (node) =>
     set((s) => ({ nodes: [...s.nodes, node] })),
@@ -102,22 +126,46 @@ export const useStore = create<State & Actions>()((set) => ({
   // ── run actions ────────────────────────────────────────────────────────────
   setRunId: (id) => set({ runId: id }),
 
-  setRunStatus: (nodeId, status, output) =>
+  setRunStatus: (nodeId, status, output, meta) =>
     set((s) => ({
-      nodes: s.nodes.map((n) =>
-        n.id === nodeId
-          ? { ...n, data: { ...n.data, runStatus: status, ...(output !== undefined ? { runOutput: output } : {}) } }
-          : n
-      ),
+      nodes: s.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            runStatus: status,
+            ...(output !== undefined ? { runOutput: output } : {}),
+            ...(meta   !== undefined ? { runMeta: { ...n.data.runMeta, ...meta } } : {}),
+          },
+        }
+      }),
     })),
 
   appendNodeToken: (nodeId, token) =>
     set((s) => ({
-      nodes: s.nodes.map((n) =>
-        n.id === nodeId
-          ? { ...n, data: { ...n.data, runOutput: (n.data.runOutput ?? '') + token } }
-          : n
-      ),
+      nodes: s.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        const prev      = n.data.runOutput ?? ''
+        const charCount = prev.length + token.length
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            runOutput: prev + token,
+            runMeta:   { ...n.data.runMeta, charCount, stage: 'Streaming' },
+          },
+        }
+      }),
+    })),
+
+  appendRunHistory: (nodeId, entry) =>
+    set((s) => ({
+      nodes: s.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        const prev = (n.data.runHistory ?? []) as RunHistoryEntry[]
+        return { ...n, data: { ...n.data, runHistory: [entry, ...prev].slice(0, 50) } }
+      }),
     })),
 
   resetRun: () =>
@@ -125,7 +173,7 @@ export const useStore = create<State & Actions>()((set) => ({
       runId: null,
       nodes: s.nodes.map((n) => ({
         ...n,
-        data: { ...n.data, runStatus: 'idle' as RunStatus, runOutput: undefined },
+        data: { ...n.data, runStatus: 'idle' as RunStatus, runOutput: undefined, runMeta: undefined },
       })),
     })),
 

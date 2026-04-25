@@ -2,20 +2,22 @@
 
 import { useCallback, useRef } from 'react'
 import { useStore } from '@/store'
-import type { FlowGraph } from '@/lib/types'
+import type { FileData, FlowGraph } from '@/lib/types'
 
 export function useSSERunner() {
   const esRef = useRef<EventSource | null>(null)
 
-  const setRunId        = useStore((s) => s.setRunId)
-  const setRunStatus    = useStore((s) => s.setRunStatus)
-  const appendNodeToken = useStore((s) => s.appendNodeToken)
-  const resetRun        = useStore((s) => s.resetRun)
+  const setRunId          = useStore((s) => s.setRunId)
+  const setRunStatus      = useStore((s) => s.setRunStatus)
+  const appendNodeToken   = useStore((s) => s.appendNodeToken)
+  const appendRunHistory  = useStore((s) => s.appendRunHistory)
+  const resetRun          = useStore((s) => s.resetRun)
 
   const runFlow = useCallback(async (
     flowId: string,
     userInput: string,
     graph?: FlowGraph,
+    fileData?: FileData,
   ) => {
     resetRun()
 
@@ -23,7 +25,11 @@ export function useSSERunner() {
     const res = await fetch(`/api/v1/flows/${flowId}/run`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ input: userInput, ...(graph ? { graph } : {}) }),
+      body:    JSON.stringify({
+        input: userInput,
+        ...(graph    ? { graph }    : {}),
+        ...(fileData ? { fileData } : {}),
+      }),
     })
 
     if (!res.ok) {
@@ -40,7 +46,7 @@ export function useSSERunner() {
 
     es.addEventListener('node-start', (e) => {
       const { nodeId } = JSON.parse(e.data) as { nodeId: string }
-      setRunStatus(nodeId, 'running')
+      setRunStatus(nodeId, 'running', undefined, { stage: 'Thinking…' })
     })
 
     es.addEventListener('node-delta', (e) => {
@@ -49,8 +55,21 @@ export function useSSERunner() {
     })
 
     es.addEventListener('node-end', (e) => {
-      const { nodeId, status } = JSON.parse(e.data) as { nodeId: string; status: 'done' | 'error' }
-      setRunStatus(nodeId, status)
+      const { nodeId, status, durationMs, output } = JSON.parse(e.data) as {
+        nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string
+      }
+      setRunStatus(nodeId, status, output, {
+        durationMs,
+        stage: status === 'done' ? 'Done' : 'Error',
+      })
+      if (status === 'done' && output) {
+        appendRunHistory(nodeId, {
+          id:         crypto.randomUUID(),
+          output,
+          timestamp:  Date.now(),
+          durationMs,
+        })
+      }
     })
 
     es.addEventListener('run-complete', () => {
@@ -62,7 +81,7 @@ export function useSSERunner() {
       es.close()
       esRef.current = null
     }
-  }, [resetRun, setRunId, setRunStatus, appendNodeToken])
+  }, [resetRun, setRunId, setRunStatus, appendNodeToken, appendRunHistory])  // fileData intentionally not in deps (passed per-call)
 
   const stopRun = useCallback(() => {
     esRef.current?.close()

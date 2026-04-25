@@ -5,10 +5,12 @@ import type { ModelMessage } from 'ai'
 import type { EmitFn, LLMNodeConfig, NodeContext } from '@/lib/types'
 
 function resolveModel(config: LLMNodeConfig) {
-  if (config.provider === 'openai') {
-    return createOpenAI()(config.model ?? 'gpt-4o')
+  const model = config.model ?? 'claude-sonnet-4-6'
+  const isOpenAI = model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3') || config.provider === 'openai'
+  if (isOpenAI) {
+    return createOpenAI({ apiKey: process.env.OPENAI_API_KEY })(model)
   }
-  return createAnthropic()(config.model ?? 'claude-sonnet-4-6')
+  return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })(model)
 }
 
 export async function handleLLM(

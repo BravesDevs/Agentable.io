@@ -128,3 +128,72 @@
     @apply font-mono;
   }
 }
+
+/* ── React Flow overrides ───────────────────────────────────────────────── */
+
+/* Dark canvas background */
+.react-flow__renderer,
+.react-flow__pane {
+  background: transparent;
+}
+
+/* Animated edge dashes — flow toward target */
+.react-flow__edge.animated path {
+  stroke-dasharray: 6 4;
+  animation: edge-flow 0.6s linear infinite;
+}
+
+@keyframes edge-flow {
+  from { stroke-dashoffset: 20; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+/* Connection line while dragging */
+.react-flow__connection-path {
+  stroke: #00ff88;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  opacity: 0.6;
+}
+
+/* Edge selected highlight */
+.react-flow__edge.selected path,
+.react-flow__edge:focus path {
+  stroke: #00ff88 !important;
+  opacity: 1 !important;
+}
+
+/* Handle ring on hover */
+.react-flow__handle:hover {
+  box-shadow: 0 0 0 3px rgba(0, 255, 136, 0.3);
+}
+
+/* Controls & MiniMap dark chrome */
+.react-flow__controls {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  background: #1a1a1e !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: rgba(255,255,255,0.5) !important;
+  fill: rgba(255,255,255,0.5) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255,255,255,0.08) !important;
+}
+
+.react-flow__minimap {
+  background: #131316 !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+/* Sheet overlay tint */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}
