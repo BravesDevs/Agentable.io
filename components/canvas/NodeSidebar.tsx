@@ -693,6 +693,7 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
   const [pos, setPos]         = useState({ x: 0, y: 0 })
   const [mounted, setMounted] = useState(false)
   const modalRef              = useRef<HTMLDivElement>(null)
+  const backdropRef           = useRef<HTMLDivElement>(null)
   const isDragging            = useRef(false)
   const dragOrigin            = useRef({ mx: 0, my: 0, px: 0, py: 0 })
 
@@ -714,13 +715,43 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
     }
   }, [open])
 
-  // Escape key closes
+  // Why: this modal is portaled to document.body but lives inside a Radix
+  // Dialog (Sheet). Radix detects "outside" via a document-level pointerdown
+  // listener — every click here would bubble past us, the Sheet would close,
+  // and that unmounts this modal. So we stop pointer/touch/key events on our
+  // own portal nodes from ever reaching that document listener.
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
+    const modalEl = modalRef.current
+    const backdropEl = backdropRef.current
+    if (!modalEl || !backdropEl) return
+
+    const stop = (e: Event) => e.stopPropagation()
+    const stopKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') e.stopPropagation()
+    }
+    const pointerEvents = [
+      'pointerdown', 'pointerup',
+      'mousedown',   'mouseup', 'click',
+      'touchstart',  'touchend',
+    ] as const
+
+    pointerEvents.forEach((evt) => {
+      modalEl.addEventListener(evt, stop)
+      backdropEl.addEventListener(evt, stop)
+    })
+    modalEl.addEventListener('keydown', stopKey)
+    backdropEl.addEventListener('keydown', stopKey)
+
+    return () => {
+      pointerEvents.forEach((evt) => {
+        modalEl.removeEventListener(evt, stop)
+        backdropEl.removeEventListener(evt, stop)
+      })
+      modalEl.removeEventListener('keydown', stopKey)
+      backdropEl.removeEventListener('keydown', stopKey)
+    }
+  }, [open])
 
   const startDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Ignore clicks on interactive children
@@ -749,7 +780,7 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
   const modal = (
     <>
       {/* Backdrop — click-outside does NOT close; use the ✕ button */}
-      <div className="fixed inset-0 z-[400] bg-black/55 backdrop-blur-[2px]" />
+      <div ref={backdropRef} className="fixed inset-0 z-[400] bg-black/55 backdrop-blur-[2px]" />
 
       {/* Modal — resize:both gives the native browser resize grip at bottom-right */}
       <div
@@ -786,7 +817,7 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
         </div>
 
         {/* ── Scrollable body ─────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto min-h-0 overscroll-contain [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25">
+        <div className="flex-1 min-h-0 overflow-y-scroll overscroll-contain [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-white/[0.04] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb:hover]:bg-white/50">
           {children}
         </div>
 
@@ -930,7 +961,7 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
 
           {/* Analytics grid */}
           {selected && (
-            <div className="px-6 py-4 border-b border-white/8 grid grid-cols-2 gap-x-8 gap-y-4">
+            <div className="px-6 py-4 border-b border-white/8 grid grid-cols-2 gap-x-4 gap-y-4">
 
               {/* Left column — model & timing */}
               <div className="space-y-3">
