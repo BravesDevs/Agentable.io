@@ -1,9 +1,10 @@
-import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig, TokenUsage } from '@/lib/types'
+import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
 import { topoSort } from './topoSort'
 import { handleInput } from './handlers/input'
 import { handlePrompt } from './handlers/prompt'
 import { handleLLM } from './handlers/llm'
 import { handleOutput } from './handlers/output'
+import { handleTool } from './handlers/tool'
 
 export async function execute(
   graph: FlowGraph,
@@ -47,6 +48,10 @@ export async function execute(
           outContext = await handleLLM(node.id, node.data.config as LLMNodeConfig, inContext, emit)
           break
 
+        case 'tool':
+          outContext = await handleTool(node.id, node.data.config as ToolNodeConfig, inContext, emit)
+          break
+
         case 'output':
           outContext = await handleOutput(node.id, undefined, inContext, emit)
           break
@@ -67,14 +72,17 @@ export async function execute(
         durationMs: Date.now() - startMs,
         output:    outContext.output,
         ...(outContext.usage ? { usage: outContext.usage as TokenUsage } : {}),
-        ...(node.type === 'llm' ? { model: (cfg?.model as string | undefined) ?? 'claude-sonnet-4-6' } : {}),
+        ...(node.type === 'llm'  ? { model: (cfg?.model as string | undefined) ?? 'claude-sonnet-4-6' } : {}),
+        ...(node.type === 'tool' && outContext.tool ? { tool: outContext.tool as ToolRunSnapshot } : {}),
       })
     } catch (err) {
+      const toolSnap = (err as Error & { toolSnapshot?: ToolRunSnapshot }).toolSnapshot
       emit({
-        type: 'node-end',
-        nodeId: node.id,
-        status: 'error',
+        type:       'node-end',
+        nodeId:     node.id,
+        status:     'error',
         durationMs: Date.now() - startMs,
+        ...(toolSnap ? { tool: toolSnap } : {}),
       })
       throw err
     }

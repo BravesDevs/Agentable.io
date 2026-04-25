@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useStore, type NodeKind, type RunHistoryEntry } from '@/store'
+import type { ToolRunSnapshot } from '@/lib/types'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
 
@@ -564,7 +565,30 @@ function PromptForm({ config, onSave }: { config: Record<string, unknown>; onSav
 
 // ─── Tool form ────────────────────────────────────────────────────────────────
 
-function ToolForm({ config, onSave }: { config: Record<string, unknown>; onSave: (v: ToolForm) => void }) {
+const METHOD_BADGE: Record<string, string> = {
+  GET:    'bg-green-500/15 text-green-300 border-green-500/25',
+  POST:   'bg-blue-500/15  text-blue-300  border-blue-500/25',
+  PUT:    'bg-amber-500/15 text-amber-300 border-amber-500/25',
+  DELETE: 'bg-red-500/15   text-red-300   border-red-500/25',
+}
+
+function statusBadgeColor(status?: number, errored?: boolean): string {
+  if (errored && !status) return 'bg-red-500/15 text-red-300 border-red-500/25'
+  if (!status)            return 'bg-white/8 text-white/40 border-white/15'
+  if (status < 300)       return 'bg-[#00ff88]/15 text-[#00ff88] border-[#00ff88]/25'
+  if (status < 400)       return 'bg-amber-500/15 text-amber-300 border-amber-500/25'
+  return 'bg-red-500/15 text-red-300 border-red-500/25'
+}
+
+function ToolForm({
+  config,
+  onSave,
+  history,
+}: {
+  config:  Record<string, unknown>
+  onSave:  (v: ToolForm) => void
+  history: RunHistoryEntry[]
+}) {
   const { control, register, handleSubmit } = useForm<ToolForm>({
     resolver: zodResolver(toolSchema),
     defaultValues: {
@@ -575,68 +599,371 @@ function ToolForm({ config, onSave }: { config: Record<string, unknown>; onSave:
     },
   })
 
+  const [selected, setSelected] = useState<RunHistoryEntry | null>(null)
+  const toolHistory = history.filter(h => h.tool)
+
   return (
-    <form onSubmit={handleSubmit(onSave)} className="space-y-4">
-      <FieldRow label="Method">
-        <Controller
-          name="method"
-          control={control}
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
-                {(['GET','POST','PUT','DELETE'] as const).map((m) => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+    <>
+      <form onSubmit={handleSubmit(onSave)} className="space-y-4">
+        <FieldRow label="Method">
+          <Controller
+            name="method"
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+                  {(['GET','POST','PUT','DELETE'] as const).map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </FieldRow>
+
+        <FieldRow label="URL">
+          <Input
+            {...register('url')}
+            placeholder="https://api.example.com/v1/endpoint"
+            className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 font-mono text-xs h-9 focus-visible:ring-amber-500/30"
+          />
+        </FieldRow>
+
+        <FieldRow label="Headers (JSON)">
+          <Textarea
+            {...register('headers')}
+            placeholder={'{"Authorization": "Bearer ..."}'}
+            rows={3}
+            className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 resize-none font-mono text-xs focus-visible:ring-amber-500/30"
+          />
+        </FieldRow>
+
+        <FieldRow label="Body (JSON)">
+          <Textarea
+            {...register('body')}
+            placeholder={'{"query": "{{input}}"}'}
+            rows={3}
+            className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 resize-none font-mono text-xs focus-visible:ring-amber-500/30"
+          />
+        </FieldRow>
+
+        <Button
+          type="submit"
+          size="sm"
+          className="w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30"
+        >
+          Apply
+        </Button>
+      </form>
+
+      {/* ── Server responses ─────────────────────────────────────────────── */}
+      <div className="mt-6 pt-5 border-t border-white/8">
+        <div className="flex items-baseline justify-between mb-3">
+          <span className="text-[10px] font-semibold tracking-widest text-white/40 uppercase">Responses</span>
+          <span className="text-[10px] tabular-nums text-white/30 font-mono">
+            {toolHistory.length} call{toolHistory.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {toolHistory.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-32 gap-2 rounded-xl border border-dashed border-white/8">
+            <span className="text-base">🌐</span>
+            <p className="text-[11px] text-white/30 text-center">No requests yet.<br />Run the flow to call this endpoint.</p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {toolHistory.map((entry, idx) => {
+              const tool     = entry.tool!
+              const method   = tool.request.method
+              const status   = tool.response?.status
+              const errored  = entry.status === 'error' || !!tool.error
+              const url      = tool.request.url
+              const urlPrev  = url.length > 56 ? url.slice(0, 56) + '…' : url
+              const isLatest = idx === 0
+
+              return (
+                <button
+                  key={entry.id}
+                  onClick={() => setSelected(entry)}
+                  className="w-full text-left group relative"
+                >
+                  <div className={`
+                    rounded-xl border px-4 py-3.5 bg-[#131316]
+                    transition-all duration-150
+                    group-hover:border-amber-400/30 group-hover:bg-amber-400/4 group-hover:shadow-[0_0_14px_rgba(251,191,36,0.08)]
+                    ${isLatest ? 'border-amber-400/25' : 'border-white/8'}
+                  `}>
+                    {/* Card header */}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[9px] font-bold rounded px-1.5 py-0.5 border ${METHOD_BADGE[method] ?? 'bg-white/8 text-white/40 border-white/15'}`}>
+                          {method}
+                        </span>
+                        <span className={`text-[9px] font-mono font-bold rounded px-1.5 py-0.5 border ${statusBadgeColor(status, errored)}`}>
+                          {status ?? (errored ? 'ERR' : '—')}
+                        </span>
+                        {isLatest && (
+                          <span className="text-[9px] text-amber-300/70 bg-amber-400/8 border border-amber-400/15 rounded-full px-1.5 py-0.5 font-medium">
+                            Latest
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {entry.durationMs != null && (
+                          <span className="text-[10px] text-white/20 font-mono">{fmtDuration(entry.durationMs)}</span>
+                        )}
+                        <span className="text-[10px] text-white/30 font-mono">{relativeTime(entry.timestamp)}</span>
+                      </div>
+                    </div>
+
+                    {/* URL preview */}
+                    <p className="text-[11px] text-white/55 font-mono leading-relaxed break-all line-clamp-2">
+                      {urlPrev || <span className="text-white/30 italic">No URL</span>}
+                    </p>
+
+                    {tool.error && (
+                      <p className="text-[10px] text-red-400/80 mt-1.5 font-mono break-all line-clamp-2">
+                        {tool.error}
+                      </p>
+                    )}
+
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/15 group-hover:text-amber-400/50 transition-colors text-xs">
+                      →
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <ToolDetailModal
+        entry={selected}
+        onClose={() => setSelected(null)}
+        index={selected ? toolHistory.length - toolHistory.indexOf(selected) : 0}
+      />
+    </>
+  )
+}
+
+// ─── Tool detail modal (tabs: Headers / Body / Status / Response) ─────────────
+
+type ToolTab = 'headers' | 'body' | 'status' | 'response'
+
+const TOOL_TABS: { id: ToolTab; label: string }[] = [
+  { id: 'headers',  label: 'Headers' },
+  { id: 'body',     label: 'Body / Query' },
+  { id: 'status',   label: 'Status' },
+  { id: 'response', label: 'Response' },
+]
+
+function KVTable({ rows, emptyLabel }: { rows: Record<string, string>; emptyLabel: string }) {
+  const entries = Object.entries(rows)
+  if (entries.length === 0) {
+    return <p className="text-[11px] text-white/30 italic px-1">{emptyLabel}</p>
+  }
+  return (
+    <div className="rounded-lg border border-white/8 overflow-hidden">
+      <table className="w-full text-[11px] font-mono">
+        <tbody>
+          {entries.map(([k, v], i) => (
+            <tr key={k} className={i % 2 === 0 ? 'bg-white/2' : ''}>
+              <td className="px-3 py-1.5 text-white/55 align-top whitespace-nowrap border-r border-white/6 w-[40%]">
+                {k}
+              </td>
+              <td className="px-3 py-1.5 text-white/80 break-all">
+                {v}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ToolDetailModal({
+  entry,
+  onClose,
+  index,
+}: {
+  entry:   RunHistoryEntry | null
+  onClose: () => void
+  index:   number
+}) {
+  const [tab, setTab] = useState<ToolTab>('headers')
+
+  const tool   = entry?.tool as ToolRunSnapshot | undefined
+  const status = tool?.response?.status
+  const errored = entry?.status === 'error' || !!tool?.error
+
+  return (
+    <DraggableModal
+      open={!!entry}
+      onClose={onClose}
+      title={
+        <div className="flex items-center gap-2 min-w-0 w-full">
+          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+          <span className="text-sm font-semibold text-white/90 shrink-0">
+            Request · {index || ''}
+          </span>
+          {tool && (
+            <>
+              <span className={`text-[9px] font-bold rounded px-1.5 py-0.5 border shrink-0 ${METHOD_BADGE[tool.request.method] ?? ''}`}>
+                {tool.request.method}
+              </span>
+              <span className={`text-[9px] font-mono font-bold rounded px-1.5 py-0.5 border shrink-0 ${statusBadgeColor(status, errored)}`}>
+                {status ?? (errored ? 'ERR' : '—')}
+              </span>
+              <span className="text-[11px] text-white/40 font-mono truncate min-w-0">
+                {tool.request.url}
+              </span>
+            </>
           )}
-        />
-      </FieldRow>
+          <span className="text-[11px] text-white/25 font-mono shrink-0 ml-auto">
+            {entry ? new Date(entry.timestamp).toLocaleString() : ''}
+          </span>
+        </div>
+      }
+    >
+      {tool && (
+        <div className="flex flex-col h-full min-h-0">
+          {/* Tabs */}
+          <div className="flex border-b border-white/8 bg-[#0f0f11]">
+            {TOOL_TABS.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`relative px-4 py-2.5 text-[11px] font-semibold tracking-widest uppercase transition-colors ${
+                  tab === t.id ? 'text-amber-300' : 'text-white/40 hover:text-white/70'
+                }`}
+              >
+                {t.label}
+                {tab === t.id && (
+                  <span className="absolute left-3 right-3 -bottom-px h-0.5 bg-amber-400 rounded-full" />
+                )}
+              </button>
+            ))}
+          </div>
 
-      <FieldRow label="URL">
-        <Input
-          {...register('url')}
-          placeholder="https://api.example.com/v1/endpoint"
-          className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 font-mono text-xs h-9 focus-visible:ring-amber-500/30"
-        />
-      </FieldRow>
+          {/* Tab content */}
+          <div className="flex-1 overflow-auto px-6 py-5">
+            {tab === 'headers' && (
+              <div className="space-y-2">
+                <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-2">Request Headers</p>
+                <KVTable rows={tool.request.headers} emptyLabel="No request headers." />
+              </div>
+            )}
 
-      <FieldRow label="Headers (JSON)">
-        <Textarea
-          {...register('headers')}
-          placeholder={'{"Authorization": "Bearer ..."}'}
-          rows={3}
-          className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 resize-none font-mono text-xs focus-visible:ring-amber-500/30"
-        />
-      </FieldRow>
+            {tab === 'body' && (
+              <div className="space-y-5">
+                {tool.request.query && Object.keys(tool.request.query).length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-2">Query Params</p>
+                    <KVTable rows={tool.request.query} emptyLabel="No query params." />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-2">Request Body</p>
+                  {tool.request.body ? (
+                    <pre className="text-[11px] font-mono text-white/80 whitespace-pre-wrap break-words leading-relaxed bg-black/40 border border-white/8 rounded-lg px-3 py-2.5 max-h-[55vh] overflow-auto">
+                      {tool.request.body}
+                    </pre>
+                  ) : (
+                    <p className="text-[11px] text-white/30 italic px-1">No body sent (method: {tool.request.method}).</p>
+                  )}
+                </div>
+              </div>
+            )}
 
-      <FieldRow label="Body (JSON)">
-        <Textarea
-          {...register('body')}
-          placeholder={'{"query": "{{input}}"}'}
-          rows={3}
-          className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 resize-none font-mono text-xs focus-visible:ring-amber-500/30"
-        />
-      </FieldRow>
+            {tab === 'status' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <StatRow label="Status Code"
+                    value={tool.response?.status != null ? String(tool.response.status) : '—'}
+                    mono
+                    valueClass={statusBadgeColor(tool.response?.status, errored).split(' ')[1]}
+                  />
+                  <StatRow label="Status Text" value={tool.response?.statusText || '—'} mono />
+                  <StatRow label="Duration"    value={tool.response?.durationMs != null ? `${tool.response.durationMs}ms` : '—'} mono />
+                  <StatRow label="Body Size"   value={tool.response?.bodyBytes != null ? `${tool.response.bodyBytes.toLocaleString()} B` : '—'} mono />
+                  <StatRow label="Content-Type" value={tool.response?.contentType ?? '—'} mono />
+                  <StatRow label="Method"      value={tool.request.method} mono />
+                </div>
 
-      <Button
-        type="submit"
-        size="sm"
-        className="w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30"
-      >
-        Apply
-      </Button>
-    </form>
+                {tool.error && (
+                  <div className="rounded-lg border border-red-500/25 bg-red-500/8 px-3 py-2.5">
+                    <p className="text-[9px] font-semibold tracking-widest text-red-300/70 uppercase mb-1">Error</p>
+                    <p className="text-[11px] text-red-300 font-mono break-all">{tool.error}</p>
+                  </div>
+                )}
+
+                {tool.response && (
+                  <div className="space-y-2 pt-2 border-t border-white/8">
+                    <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase">Response Headers</p>
+                    <KVTable rows={tool.response.headers} emptyLabel="No response headers." />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'response' && (
+              <div className="space-y-2">
+                <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-2">Response Body</p>
+                {tool.response ? (
+                  <pre className="text-[11px] font-mono text-white/80 whitespace-pre-wrap break-words leading-relaxed bg-black/40 border border-white/8 rounded-lg px-3 py-2.5 max-h-[60vh] overflow-auto">
+                    {tool.response.body || <span className="text-white/30 italic">Empty response body.</span>}
+                  </pre>
+                ) : (
+                  <p className="text-[11px] text-white/30 italic">No response — request failed before reaching the server.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-white/8 flex items-center justify-between bg-[#0f0f11]">
+            <span className="text-[11px] text-white/20 font-mono">
+              {entry ? new Date(entry.timestamp).toLocaleString() : ''}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white"
+              onClick={() => {
+                if (!tool) return
+                const copy = tab === 'response' ? (tool.response?.body ?? '') : JSON.stringify(tool, null, 2)
+                navigator.clipboard.writeText(copy)
+              }}
+            >
+              Copy {tab === 'response' ? 'response' : 'snapshot'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </DraggableModal>
   )
 }
 
 // ─── Memory form ──────────────────────────────────────────────────────────────
 
-function MemoryForm({ config, onSave }: { config: Record<string, unknown>; onSave: (v: { k: number }) => void }) {
-  const [k, setK] = useState((config.k as number) ?? 10)
+function MemoryForm({
+  config,
+  onSave,
+  history,
+}: {
+  config:  Record<string, unknown>
+  onSave:  (v: { k: number }) => void
+  history: RunHistoryEntry[]
+}) {
+  const [k, setK]               = useState((config.k as number) ?? 10)
+  const [selected, setSelected] = useState<RunHistoryEntry | null>(null)
+  const visible                 = history.slice(0, k)
 
   return (
     <div className="space-y-5">
@@ -659,6 +986,123 @@ function MemoryForm({ config, onSave }: { config: Record<string, unknown>; onSav
       >
         Apply
       </Button>
+
+      {/* ── Messages list ───────────────────────────────────────────────── */}
+      <div className="pt-2 border-t border-white/8">
+        <div className="flex items-baseline justify-between mb-3">
+          <span className="text-[10px] font-semibold tracking-widest text-white/40 uppercase">Messages</span>
+          <span className="text-[10px] tabular-nums text-white/30 font-mono">
+            {visible.length} / {history.length}
+          </span>
+        </div>
+
+        {visible.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-32 gap-2 rounded-xl border border-dashed border-white/8">
+            <span className="text-base">💬</span>
+            <p className="text-[11px] text-white/30 text-center">No messages buffered yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {visible.map((entry, idx) => {
+              const preview = entry.output.length > 120
+                ? entry.output.slice(0, 120) + '…'
+                : entry.output
+              const isLatest = idx === 0
+
+              return (
+                <button
+                  key={entry.id}
+                  onClick={() => setSelected(entry)}
+                  className="w-full text-left group relative"
+                >
+                  <div className={`
+                    rounded-xl border px-4 py-3.5 bg-[#131316]
+                    transition-all duration-150
+                    group-hover:border-teal-400/30 group-hover:bg-teal-400/4 group-hover:shadow-[0_0_14px_rgba(45,212,191,0.08)]
+                    ${isLatest ? 'border-teal-400/25' : 'border-white/8'}
+                  `}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        {isLatest && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-[0_0_4px_rgb(45,212,191)]" />
+                        )}
+                        <span className="text-[10px] font-semibold tracking-widest text-white/40 uppercase">
+                          Msg {history.length - idx}
+                        </span>
+                        {isLatest && (
+                          <span className="text-[9px] text-teal-300/70 bg-teal-400/8 border border-teal-400/15 rounded-full px-1.5 py-0.5 font-medium">
+                            Latest
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {entry.durationMs && (
+                          <span className="text-[10px] text-white/20 font-mono">{fmtDuration(entry.durationMs)}</span>
+                        )}
+                        <span className="text-[10px] text-white/30 font-mono">{relativeTime(entry.timestamp)}</span>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-white/55 font-mono leading-relaxed whitespace-pre-wrap break-words line-clamp-3">
+                      {preview}
+                    </p>
+
+                    {entry.output.length > 120 && (
+                      <p className="text-[10px] text-white/25 mt-1.5">
+                        {entry.output.length - 120} more chars · click to expand
+                      </p>
+                    )}
+
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/15 group-hover:text-teal-400/50 transition-colors text-xs">
+                      →
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Detail modal */}
+      <DraggableModal
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-teal-400 shrink-0" />
+              <span className="text-sm font-semibold text-white/90 truncate">
+                Message · {selected ? history.length - history.indexOf(selected) : ''}
+              </span>
+            </div>
+            <span className="text-[11px] text-white/25 font-mono shrink-0 ml-auto">
+              {selected ? new Date(selected.timestamp).toLocaleString() : ''}
+            </span>
+          </div>
+        }
+      >
+        <div>
+          <div className="px-6 py-5">
+            <pre className="text-sm font-mono whitespace-pre-wrap break-words leading-relaxed text-white/80">
+              {selected?.output}
+            </pre>
+          </div>
+          <div className="px-6 py-3 border-t border-white/8 flex items-center justify-between">
+            <span className="text-[11px] text-white/20 font-mono">
+              {selected ? new Date(selected.timestamp).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white"
+              onClick={() => { if (selected) navigator.clipboard.writeText(selected.output) }}
+            >
+              Copy message
+            </Button>
+          </div>
+        </div>
+      </DraggableModal>
     </div>
   )
 }
@@ -1057,7 +1501,7 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs border-white/10 text-white/50 hover:bg-white/5 hover:text-white/80"
+              className="h-7 text-xs bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white"
               onClick={() => { if (selected) navigator.clipboard.writeText(selected.output) }}
             >
               Copy output
@@ -1139,10 +1583,18 @@ export default function NodeSidebar() {
             <PromptForm config={node.data.config} onSave={handleSave} />
           )}
           {node?.data.nodeType === 'tool' && (
-            <ToolForm config={node.data.config} onSave={handleSave} />
+            <ToolForm
+              config={node.data.config}
+              onSave={handleSave}
+              history={(node.data.runHistory ?? []) as RunHistoryEntry[]}
+            />
           )}
           {node?.data.nodeType === 'memory' && (
-            <MemoryForm config={node.data.config} onSave={handleSave} />
+            <MemoryForm
+              config={node.data.config}
+              onSave={handleSave}
+              history={(node.data.runHistory ?? []) as RunHistoryEntry[]}
+            />
           )}
           {node?.data.nodeType === 'output' && (
             <OutputHistory history={(node.data.runHistory ?? []) as RunHistoryEntry[]} />

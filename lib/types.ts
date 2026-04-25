@@ -63,10 +63,46 @@ export interface PromptNodeConfig {
   template: string
 }
 
+// ─── Tool node ────────────────────────────────────────────────────────────────
+
+export type ToolMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
+
+export interface ToolNodeConfig {
+  method:  ToolMethod
+  url:     string
+  headers: string   // JSON string entered in the form
+  body:    string   // raw text or JSON string
+}
+
+export interface ToolRequestSnapshot {
+  method:  ToolMethod
+  url:     string
+  headers: Record<string, string>
+  body?:   string
+  query?:  Record<string, string>
+}
+
+export interface ToolResponseSnapshot {
+  status:     number
+  statusText: string
+  headers:    Record<string, string>
+  body:       string
+  durationMs: number
+  bodyBytes:  number
+  contentType?: string
+}
+
+export interface ToolRunSnapshot {
+  request:   ToolRequestSnapshot
+  response?: ToolResponseSnapshot
+  error?:    string
+}
+
 export type NodeConfig =
   | InputNodeConfig
   | LLMNodeConfig
   | PromptNodeConfig
+  | ToolNodeConfig
   | Record<string, unknown>
 
 // ─── Token / timing analytics ────────────────────────────────────────────────
@@ -91,7 +127,7 @@ export type SSEEvent =
   | { type: 'node-start';    nodeId: string; timestamp: number }
   | { type: 'node-delta';    nodeId: string; token: string }
   | { type: 'node-replace';  nodeId: string; output: string }   // replaces (not appends) runOutput
-  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string }
+  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string; tool?: ToolRunSnapshot }
   | { type: 'run-complete';  runId: string;  status: 'done' | 'error'; error?: string }
 
 export type EmitFn = (event: SSEEvent) => void

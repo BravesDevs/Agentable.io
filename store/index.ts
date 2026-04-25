@@ -10,7 +10,7 @@ import {
   type EdgeChange,
   type Connection,
 } from '@xyflow/react'
-import type { TokenUsage } from '@/lib/types'
+import type { TokenUsage, ToolRunSnapshot } from '@/lib/types'
 
 // ─── Port & Node types ────────────────────────────────────────────────────────
 
@@ -31,6 +31,8 @@ export interface RunHistoryEntry {
   model?:        string        // model identifier, e.g. "claude-sonnet-4-6"
   mode?:         'text' | 'structured'
   usage?:        TokenUsage    // token counts + firstTokenMs
+  status?:       'done' | 'error'   // tool runs may end in error but still produce a history card
+  tool?:         ToolRunSnapshot    // request/response capture for tool nodes
 }
 
 export interface RunMeta {

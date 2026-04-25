@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react'
 import { useStore } from '@/store'
-import type { FileData, FlowGraph, TokenUsage } from '@/lib/types'
+import type { FileData, FlowGraph, TokenUsage, ToolRunSnapshot } from '@/lib/types'
 
 export function useSSERunner() {
   const esRef = useRef<EventSource | null>(null)
@@ -62,21 +62,40 @@ export function useSSERunner() {
     })
 
     es.addEventListener('node-end', (e) => {
-      const { nodeId, status, durationMs, output, usage, model } = JSON.parse(e.data) as {
+      const { nodeId, status, durationMs, output, usage, model, tool } = JSON.parse(e.data) as {
         nodeId:     string
         status:     'done' | 'error'
         durationMs: number
         output?:    string
         usage?:     TokenUsage
         model?:     string
+        tool?:      ToolRunSnapshot
       }
+
+      const nodeData = useStore.getState().nodes.find((n) => n.id === nodeId)?.data
+      const isTool   = nodeData?.nodeType === 'tool'
+
       setRunStatus(nodeId, status, output, {
         durationMs,
         stage: status === 'done' ? 'Done' : 'Error',
+        ...(isTool && tool?.response ? { httpStatus: tool.response.status } : {}),
+        ...(isTool && tool?.error    ? { httpError:  tool.error            } : {}),
       })
+
+      // Tool nodes record every attempt — success or failure — so users can inspect what was sent.
+      if (isTool && tool) {
+        appendRunHistory(nodeId, {
+          id:        crypto.randomUUID(),
+          output:    output ?? tool.response?.body ?? tool.error ?? '',
+          timestamp: Date.now(),
+          durationMs,
+          status,
+          tool,
+        })
+        return
+      }
+
       if (status === 'done' && output) {
-        // Detect mode from the node's current config
-        const nodeData = useStore.getState().nodes.find((n) => n.id === nodeId)?.data
         const mode = nodeData?.config?.structuredOutput ? 'structured' : 'text'
 
         appendRunHistory(nodeId, {
@@ -87,6 +106,7 @@ export function useSSERunner() {
           model,
           mode,
           usage,
+          status,
         })
       }
     })
