@@ -84,6 +84,7 @@ interface Actions {
   appendNodeToken:   (nodeId: string, token: string) => void
   appendRunHistory:  (nodeId: string, entry: RunHistoryEntry) => void
   resetRun:          () => void
+  completeRun:       () => void
   // ui
   setSelectedNode: (id: string | null) => void
   closeSidebar:    () => void
@@ -179,6 +180,16 @@ export const useStore = create<State & Actions>()((set) => ({
         ...n,
         data: { ...n.data, runStatus: 'idle' as RunStatus, runOutput: undefined, runMeta: undefined },
       })),
+    })),
+
+  // Called when run-complete fires — clears runId and resolves any node still stuck in 'running'
+  completeRun: () =>
+    set((s) => ({
+      runId: null,
+      nodes: s.nodes.map((n) => {
+        if (n.data.runStatus !== 'running') return n
+        return { ...n, data: { ...n.data, runStatus: 'done' as RunStatus } }
+      }),
     })),
 
   // ── ui actions ─────────────────────────────────────────────────────────────

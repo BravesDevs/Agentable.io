@@ -12,6 +12,7 @@ export function useSSERunner() {
   const appendNodeToken   = useStore((s) => s.appendNodeToken)
   const appendRunHistory  = useStore((s) => s.appendRunHistory)
   const resetRun          = useStore((s) => s.resetRun)
+  const completeRun       = useStore((s) => s.completeRun)
 
   const runFlow = useCallback(async (
     flowId: string,
@@ -93,13 +94,15 @@ export function useSSERunner() {
     es.addEventListener('run-complete', () => {
       es.close()
       esRef.current = null
+      completeRun()
     })
 
     es.onerror = () => {
       es.close()
       esRef.current = null
+      completeRun()
     }
-  }, [resetRun, setRunId, setRunStatus, appendNodeToken, appendRunHistory])  // fileData intentionally not in deps (passed per-call)
+  }, [resetRun, setRunId, setRunStatus, appendNodeToken, appendRunHistory, completeRun])  // fileData intentionally not in deps (passed per-call)
 
   const stopRun = useCallback(() => {
     esRef.current?.close()

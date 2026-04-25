@@ -1,19 +1,13 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useShallow } from 'zustand/react/shallow'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button }   from '@/components/ui/button'
 import { Input }    from '@/components/ui/input'
@@ -683,6 +677,132 @@ function fmtDuration(ms?: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
+// ─── Draggable + resizable modal ─────────────────────────────────────────────
+
+interface DraggableModalProps {
+  open:     boolean
+  onClose:  () => void
+  title:    React.ReactNode
+  children: React.ReactNode
+}
+
+const INIT_W = 720
+const INIT_H = 600
+
+function DraggableModal({ open, onClose, title, children }: DraggableModalProps) {
+  const [pos, setPos]         = useState({ x: 0, y: 0 })
+  const [mounted, setMounted] = useState(false)
+  const modalRef              = useRef<HTMLDivElement>(null)
+  const isDragging            = useRef(false)
+  const dragOrigin            = useRef({ mx: 0, my: 0, px: 0, py: 0 })
+
+  // SSR guard for createPortal
+  useEffect(() => { setMounted(true) }, [])
+
+  // Center modal and reset size when it opens
+  useEffect(() => {
+    if (!open) return
+    const w = Math.min(INIT_W, window.innerWidth  - 48)
+    const h = Math.min(INIT_H, window.innerHeight - 80)
+    setPos({
+      x: Math.round((window.innerWidth  - w) / 2),
+      y: Math.round((window.innerHeight - h) / 2),
+    })
+    if (modalRef.current) {
+      modalRef.current.style.width  = `${w}px`
+      modalRef.current.style.height = `${h}px`
+    }
+  }, [open])
+
+  // Escape key closes
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  const startDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Ignore clicks on interactive children
+    if ((e.target as Element).closest('button,a,[data-no-drag]')) return
+    e.preventDefault()
+    isDragging.current = true
+    dragOrigin.current = { mx: e.clientX, my: e.clientY, px: pos.x, py: pos.y }
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return
+      const nx = Math.max(0, Math.min(window.innerWidth  - 120, dragOrigin.current.px + ev.clientX - dragOrigin.current.mx))
+      const ny = Math.max(0, Math.min(window.innerHeight - 60,  dragOrigin.current.py + ev.clientY - dragOrigin.current.my))
+      setPos({ x: nx, y: ny })
+    }
+    const onUp = () => {
+      isDragging.current = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup',   onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup',   onUp)
+  }, [pos])
+
+  if (!mounted || !open) return null
+
+  const modal = (
+    <>
+      {/* Backdrop — click-outside does NOT close; use the ✕ button */}
+      <div className="fixed inset-0 z-[400] bg-black/55 backdrop-blur-[2px]" />
+
+      {/* Modal — resize:both gives the native browser resize grip at bottom-right */}
+      <div
+        ref={modalRef}
+        style={{ left: pos.x, top: pos.y, minWidth: 480, minHeight: 380, resize: 'both', overflow: 'hidden' }}
+        className="fixed z-[401] flex flex-col bg-[#0f0f11] border border-white/12 rounded-xl shadow-[0_24px_80px_rgba(0,0,0,0.7)] ring-1 ring-white/5"
+      >
+        {/* ── Drag handle / title bar ─────────────────────────────────────── */}
+        <div
+          onMouseDown={startDrag}
+          className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/8 cursor-grab active:cursor-grabbing select-none shrink-0"
+        >
+          {/* Grip indicator */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex flex-col gap-[3px] opacity-30 shrink-0">
+              {[0,1,2].map((r) => (
+                <div key={r} className="flex gap-[3px]">
+                  {[0,1].map((c) => <span key={c} className="w-1 h-1 rounded-full bg-white/60" />)}
+                </div>
+              ))}
+            </div>
+            <div className="min-w-0">{title}</div>
+          </div>
+
+          {/* Close */}
+          <button
+            data-no-drag
+            onClick={onClose}
+            className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-white/35 hover:text-white/80 hover:bg-white/8 transition-colors text-sm"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* ── Scrollable body ─────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto min-h-0 overscroll-contain [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25">
+          {children}
+        </div>
+
+        {/* Resize hint */}
+        <div className="absolute bottom-1.5 right-2 pointer-events-none select-none opacity-20">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M11 1L1 11M11 6L6 11M11 11H11" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </div>
+      </div>
+    </>
+  )
+
+  return createPortal(modal, document.body)
+}
+
 // ─── Analytics stat row ───────────────────────────────────────────────────────
 
 function StatRow({ label, value, mono = false, valueClass }: {
@@ -784,27 +904,29 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
       </div>
 
       {/* Detail modal */}
-      <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null) }}>
-        <DialogContent className="max-w-2xl bg-[#0f0f11] border border-white/10 p-0 gap-0">
-
-          {/* Header */}
-          <DialogHeader className="px-6 py-4 border-b border-white/8">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-sm font-semibold text-white/90 flex items-center gap-2.5">
-                <span className="w-2 h-2 rounded-full bg-green-400" />
+      <DraggableModal
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+              <span className="text-sm font-semibold text-white/90 truncate">
                 Output · Run {selected ? history.length - history.indexOf(selected) : ''}
-                {selected?.mode === 'structured' && (
-                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/15 text-violet-300 border-violet-500/25 uppercase tracking-wide ml-1">
-                    JSON
-                  </span>
-                )}
-              </DialogTitle>
-              <span className="text-[11px] text-white/25 font-mono">
-                {selected ? new Date(selected.timestamp).toLocaleString() : ''}
               </span>
+              {selected?.mode === 'structured' && (
+                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/15 text-violet-300 border-violet-500/25 uppercase tracking-wide shrink-0">
+                  JSON
+                </span>
+              )}
             </div>
-            <DialogDescription className="sr-only">Full output and analytics for this run</DialogDescription>
-          </DialogHeader>
+            <span className="text-[11px] text-white/25 font-mono shrink-0 ml-auto">
+              {selected ? new Date(selected.timestamp).toLocaleString() : ''}
+            </span>
+          </div>
+        }
+      >
+        <div>
 
           {/* Analytics grid */}
           {selected && (
@@ -888,15 +1010,13 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
           )}
 
           {/* Output text */}
-          <ScrollArea className="max-h-[40vh]">
-            <div className="px-6 py-5">
-              <pre className={`text-sm font-mono whitespace-pre-wrap break-words leading-relaxed ${
-                selected?.mode === 'structured' ? 'text-violet-200/80' : 'text-white/80'
-              }`}>
-                {selected?.output}
-              </pre>
-            </div>
-          </ScrollArea>
+          <div className="px-6 py-5">
+            <pre className={`text-sm font-mono whitespace-pre-wrap break-words leading-relaxed ${
+              selected?.mode === 'structured' ? 'text-violet-200/80' : 'text-white/80'
+            }`}>
+              {selected?.output}
+            </pre>
+          </div>
 
           {/* Footer */}
           <div className="px-6 py-3 border-t border-white/8 flex items-center justify-between">
@@ -913,8 +1033,8 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
             </Button>
           </div>
 
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DraggableModal>
     </>
   )
 }

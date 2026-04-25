@@ -4,6 +4,31 @@ import { createOpenAI } from '@ai-sdk/openai'
 import type { ModelMessage } from 'ai'
 import type { EmitFn, LLMNodeConfig, NodeContext, TokenUsage } from '@/lib/types'
 
+// OpenAI structured output requires additionalProperties: false on every object node.
+// Apply recursively so nested objects don't trigger the same error.
+function normalizeSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...schema }
+  if (result.type === 'object') {
+    result.additionalProperties = false
+    if (result.properties && typeof result.properties === 'object') {
+      result.properties = Object.fromEntries(
+        Object.entries(result.properties as Record<string, unknown>).map(([k, v]) => [
+          k,
+          normalizeSchema(v as Record<string, unknown>),
+        ])
+      )
+    }
+  }
+  if (result.type === 'array') {
+    if (result.items && typeof result.items === 'object') {
+      result.items = normalizeSchema(result.items as Record<string, unknown>)
+    } else {
+      result.items = { type: 'string' }   // OpenAI requires items to have an explicit type
+    }
+  }
+  return result
+}
+
 function resolveModel(config: LLMNodeConfig) {
   const model = config.model ?? 'claude-sonnet-4-6'
   const isOpenAI = model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3') || config.provider === 'openai'
@@ -32,7 +57,7 @@ export async function handleLLM(
   // ── Structured output path ─────────────────────────────────────────────────
   if (cfg.structuredOutput && cfg.outputSchema) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const schema = jsonSchema(cfg.outputSchema as any)
+    const schema = jsonSchema(normalizeSchema(cfg.outputSchema as Record<string, unknown>) as any)
     const t0 = Date.now()
     let firstTokenMs: number | undefined
 
