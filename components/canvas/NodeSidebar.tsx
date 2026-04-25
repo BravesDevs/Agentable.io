@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -1184,20 +1184,26 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
   const isDragging      = useRef(false)
   const dragOrigin      = useRef({ mx: 0, my: 0, px: 0, py: 0 })
 
-  // Center on first mount of an open instance (Radix unmounts on close, so this resets per open)
-  const onContentMount  = useCallback((node: HTMLDivElement | null) => {
-    modalRef.current = node
-    if (!node) return
+  // Why: a callback-ref that calls setState was triggering "Maximum update depth"
+  // through Radix's useComposedRefs chain (Content → ContentModal → ContentImpl →
+  // DismissableLayer). Position once per open via useLayoutEffect instead.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null)
+      return
+    }
     if (typeof window === 'undefined') return
     const w = Math.min(INIT_W, window.innerWidth  - 48)
     const h = Math.min(INIT_H, window.innerHeight - 80)
-    node.style.width  = `${w}px`
-    node.style.height = `${h}px`
+    if (modalRef.current) {
+      modalRef.current.style.width  = `${w}px`
+      modalRef.current.style.height = `${h}px`
+    }
     setPos({
       x: Math.round((window.innerWidth  - w) / 2),
       y: Math.round((window.innerHeight - h) / 2),
     })
-  }, [])
+  }, [open])
 
   const startDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Ignore clicks on interactive children
@@ -1231,7 +1237,7 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-[400] bg-black/55 backdrop-blur-[2px]" />
         <RadixDialog.Content
-          ref={onContentMount}
+          ref={modalRef}
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e)    => e.preventDefault()}
           onEscapeKeyDown={(e)      => e.preventDefault()}
