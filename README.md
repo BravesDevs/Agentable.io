@@ -2,13 +2,6 @@
 
 A TypeScript-native drag-and-drop canvas for building, running, and deploying AI agents. Wire up LLMs, tools, memory, and file inputs visually — then ship as a live REST endpoint in one click.
 
-![AgentCraft Canvas](<img width="1078" height="876" alt="Screenshot 2026-04-25 at 1 27 13 AM" src="https://github.com/user-attachments/assets/70347f66-c6a6-4a91-9b24-d59dc7ccef4c" />
-)
-
-> The screenshot above shows a CSV file being passed through an Input node, processed by GPT-4o mini, and the result streamed live to an Output node — 724 characters generated in 3.5 seconds.
-
----
-
 ## Features
 
 - **Visual canvas** — drag-and-drop nodes, animated SSE edge flow, real-time status indicators
