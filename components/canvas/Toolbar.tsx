@@ -22,7 +22,7 @@ const DEFAULTS: Record<NodeKind, Record<string, unknown>> = {
   input:  { inputType: 'text' },
   prompt: { template: 'You are a helpful assistant.\n\nUser: {{input}}' },
   llm:    { provider: 'anthropic', model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 1000 },
-  tool:   { method: 'GET', url: '', headers: '{}', body: '' },
+  tool:   { method: 'GET', url: '', headers: '{}', body: '', forwardInput: false },
   memory: { k: 10 },
   output: {},
 }

@@ -68,10 +68,11 @@ export interface PromptNodeConfig {
 export type ToolMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 export interface ToolNodeConfig {
-  method:  ToolMethod
-  url:     string
-  headers: string   // JSON string entered in the form
-  body:    string   // raw text or JSON string
+  method:        ToolMethod
+  url:           string
+  headers:       string    // JSON string entered in the form
+  body:          string    // raw text or JSON string
+  forwardInput?: boolean   // when true, ignore `body` and send the upstream node's output instead
 }
 
 export interface ToolRequestSnapshot {

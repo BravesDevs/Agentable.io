@@ -2,11 +2,11 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useShallow } from 'zustand/react/shallow'
+import { Dialog as RadixDialog } from 'radix-ui'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button }   from '@/components/ui/button'
@@ -82,10 +82,11 @@ const llmSchema = z.object({
 })
 
 const toolSchema = z.object({
-  method:  z.enum(['GET', 'POST', 'PUT', 'DELETE']),
-  url:     z.string(),
-  headers: z.string(),
-  body:    z.string(),
+  method:       z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+  url:          z.string(),
+  headers:      z.string(),
+  body:         z.string(),
+  forwardInput: z.boolean().optional(),
 })
 
 type LLMForm  = z.infer<typeof llmSchema>
@@ -589,15 +590,20 @@ function ToolForm({
   onSave:  (v: ToolForm) => void
   history: RunHistoryEntry[]
 }) {
-  const { control, register, handleSubmit } = useForm<ToolForm>({
+  const { control, register, handleSubmit, watch, setValue } = useForm<ToolForm>({
     resolver: zodResolver(toolSchema),
     defaultValues: {
-      method:  (config.method  as ToolForm['method']) ?? 'GET',
-      url:     (config.url     as string)             ?? '',
-      headers: (config.headers as string)             ?? '{}',
-      body:    (config.body    as string)             ?? '',
+      method:       (config.method  as ToolForm['method']) ?? 'GET',
+      url:          (config.url     as string)             ?? '',
+      headers:      (config.headers as string)             ?? '{}',
+      body:         (config.body    as string)             ?? '',
+      forwardInput: (config.forwardInput as boolean | undefined) ?? false,
     },
   })
+
+  const method        = watch('method')
+  const forwardInput  = watch('forwardInput') ?? false
+  const bodyAllowed   = method !== 'GET' && method !== 'DELETE'
 
   const [selected, setSelected] = useState<RunHistoryEntry | null>(null)
   const toolHistory = history.filter(h => h.tool)
@@ -641,12 +647,51 @@ function ToolForm({
           />
         </FieldRow>
 
-        <FieldRow label="Body (JSON)">
+        {/* Forward parent output as body */}
+        <div className={`rounded-xl border bg-white/2 overflow-hidden ${
+          bodyAllowed ? 'border-white/8' : 'border-white/5 opacity-50'
+        }`}>
+          <div className="flex items-center justify-between px-3.5 py-3">
+            <div className="space-y-0.5 min-w-0 pr-3">
+              <p className="text-[11px] font-semibold text-white/70">Forward parent output as body</p>
+              <p className="text-[10px] text-white/30 leading-relaxed">
+                Send the upstream node&apos;s output verbatim. Overrides the body field below.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={forwardInput}
+              disabled={!bodyAllowed}
+              onClick={() => setValue('forwardInput', !forwardInput, { shouldDirty: true })}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-all disabled:cursor-not-allowed ${
+                forwardInput ? 'border-amber-500/50 bg-amber-500/30' : 'border-white/15 bg-white/8'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full shadow-sm transition-transform ${
+                forwardInput ? 'translate-x-[18px] bg-amber-300' : 'translate-x-0.5 bg-white/60'
+              }`} />
+            </button>
+          </div>
+          {!bodyAllowed && (
+            <p className="px-3.5 pb-2.5 text-[10px] text-white/30 italic">
+              {method} requests don&apos;t carry a body — switch to POST or PUT to forward parent output.
+            </p>
+          )}
+        </div>
+
+        <FieldRow
+          label="Body (JSON)"
+          hint={forwardInput && bodyAllowed ? 'overridden by parent output' : undefined}
+        >
           <Textarea
             {...register('body')}
             placeholder={'{"query": "{{input}}"}'}
             rows={3}
-            className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 resize-none font-mono text-xs focus-visible:ring-amber-500/30"
+            disabled={forwardInput && bodyAllowed}
+            className={`bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 resize-none font-mono text-xs focus-visible:ring-amber-500/30 ${
+              forwardInput && bodyAllowed ? 'opacity-40 cursor-not-allowed' : ''
+            }`}
           />
         </FieldRow>
 
@@ -1134,72 +1179,30 @@ const INIT_W = 720
 const INIT_H = 600
 
 function DraggableModal({ open, onClose, title, children }: DraggableModalProps) {
-  const [pos, setPos]         = useState({ x: 0, y: 0 })
-  const [mounted, setMounted] = useState(false)
-  const modalRef              = useRef<HTMLDivElement>(null)
-  const backdropRef           = useRef<HTMLDivElement>(null)
-  const isDragging            = useRef(false)
-  const dragOrigin            = useRef({ mx: 0, my: 0, px: 0, py: 0 })
+  const [pos, setPos]   = useState<{ x: number; y: number } | null>(null)
+  const modalRef        = useRef<HTMLDivElement>(null)
+  const isDragging      = useRef(false)
+  const dragOrigin      = useRef({ mx: 0, my: 0, px: 0, py: 0 })
 
-  // SSR guard for createPortal
-  useEffect(() => { setMounted(true) }, [])
-
-  // Center modal and reset size when it opens
-  useEffect(() => {
-    if (!open) return
+  // Center on first mount of an open instance (Radix unmounts on close, so this resets per open)
+  const onContentMount  = useCallback((node: HTMLDivElement | null) => {
+    modalRef.current = node
+    if (!node) return
+    if (typeof window === 'undefined') return
     const w = Math.min(INIT_W, window.innerWidth  - 48)
     const h = Math.min(INIT_H, window.innerHeight - 80)
+    node.style.width  = `${w}px`
+    node.style.height = `${h}px`
     setPos({
       x: Math.round((window.innerWidth  - w) / 2),
       y: Math.round((window.innerHeight - h) / 2),
     })
-    if (modalRef.current) {
-      modalRef.current.style.width  = `${w}px`
-      modalRef.current.style.height = `${h}px`
-    }
-  }, [open])
-
-  // Why: this modal is portaled to document.body but lives inside a Radix
-  // Dialog (Sheet). Radix detects "outside" via a document-level pointerdown
-  // listener — every click here would bubble past us, the Sheet would close,
-  // and that unmounts this modal. So we stop pointer/touch/key events on our
-  // own portal nodes from ever reaching that document listener.
-  useEffect(() => {
-    if (!open) return
-    const modalEl = modalRef.current
-    const backdropEl = backdropRef.current
-    if (!modalEl || !backdropEl) return
-
-    const stop = (e: Event) => e.stopPropagation()
-    const stopKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') e.stopPropagation()
-    }
-    const pointerEvents = [
-      'pointerdown', 'pointerup',
-      'mousedown',   'mouseup', 'click',
-      'touchstart',  'touchend',
-    ] as const
-
-    pointerEvents.forEach((evt) => {
-      modalEl.addEventListener(evt, stop)
-      backdropEl.addEventListener(evt, stop)
-    })
-    modalEl.addEventListener('keydown', stopKey)
-    backdropEl.addEventListener('keydown', stopKey)
-
-    return () => {
-      pointerEvents.forEach((evt) => {
-        modalEl.removeEventListener(evt, stop)
-        backdropEl.removeEventListener(evt, stop)
-      })
-      modalEl.removeEventListener('keydown', stopKey)
-      backdropEl.removeEventListener('keydown', stopKey)
-    }
-  }, [open])
+  }, [])
 
   const startDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Ignore clicks on interactive children
     if ((e.target as Element).closest('button,a,[data-no-drag]')) return
+    if (!pos) return
     e.preventDefault()
     isDragging.current = true
     dragOrigin.current = { mx: e.clientX, my: e.clientY, px: pos.x, py: pos.y }
@@ -1219,63 +1222,77 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
     window.addEventListener('mouseup',   onUp)
   }, [pos])
 
-  if (!mounted || !open) return null
-
-  const modal = (
-    <>
-      {/* Backdrop — click-outside does NOT close; use the ✕ button */}
-      <div ref={backdropRef} className="fixed inset-0 z-[400] bg-black/55 backdrop-blur-[2px]" />
-
-      {/* Modal — resize:both gives the native browser resize grip at bottom-right */}
-      <div
-        ref={modalRef}
-        style={{ left: pos.x, top: pos.y, minWidth: 480, minHeight: 380, resize: 'both', overflow: 'hidden' }}
-        className="fixed z-[401] flex flex-col bg-[#0f0f11] border border-white/12 rounded-xl shadow-[0_24px_80px_rgba(0,0,0,0.7)] ring-1 ring-white/5"
-      >
-        {/* ── Drag handle / title bar ─────────────────────────────────────── */}
-        <div
-          onMouseDown={startDrag}
-          className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/8 cursor-grab active:cursor-grabbing select-none shrink-0"
+  // Why: Radix Dialog's DismissableLayer stack ensures only the topmost layer
+  // processes outside-click/escape events, so a nested Dialog never bubbles its
+  // events up to the parent Sheet. We then preventDefault on every dismiss path
+  // so the modal can ONLY close via the explicit ✕ button.
+  return (
+    <RadixDialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className="fixed inset-0 z-[400] bg-black/55 backdrop-blur-[2px]" />
+        <RadixDialog.Content
+          ref={onContentMount}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e)    => e.preventDefault()}
+          onEscapeKeyDown={(e)      => e.preventDefault()}
+          aria-describedby={undefined}
+          style={{
+            left:      pos?.x ?? 0,
+            top:       pos?.y ?? 0,
+            minWidth:  480,
+            minHeight: 380,
+            resize:    'both',
+            overflow:  'hidden',
+            visibility: pos ? 'visible' : 'hidden',
+          }}
+          className="fixed z-[401] flex flex-col bg-[#0f0f11] border border-white/12 rounded-xl shadow-[0_24px_80px_rgba(0,0,0,0.7)] ring-1 ring-white/5 focus:outline-none"
         >
-          {/* Grip indicator */}
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex flex-col gap-[3px] opacity-30 shrink-0">
-              {[0,1,2].map((r) => (
-                <div key={r} className="flex gap-[3px]">
-                  {[0,1].map((c) => <span key={c} className="w-1 h-1 rounded-full bg-white/60" />)}
-                </div>
-              ))}
+          <RadixDialog.Title className="sr-only">Detail</RadixDialog.Title>
+
+          {/* ── Drag handle / title bar ─────────────────────────────────────── */}
+          <div
+            onMouseDown={startDrag}
+            className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/8 cursor-grab active:cursor-grabbing select-none shrink-0"
+          >
+            {/* Grip indicator */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex flex-col gap-[3px] opacity-30 shrink-0">
+                {[0,1,2].map((r) => (
+                  <div key={r} className="flex gap-[3px]">
+                    {[0,1].map((c) => <span key={c} className="w-1 h-1 rounded-full bg-white/60" />)}
+                  </div>
+                ))}
+              </div>
+              <div className="min-w-0">{title}</div>
             </div>
-            <div className="min-w-0">{title}</div>
+
+            {/* Close */}
+            <button
+              data-no-drag
+              type="button"
+              onClick={onClose}
+              className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-white/35 hover:text-white/80 hover:bg-white/8 transition-colors text-sm"
+              aria-label="Close"
+            >
+              ✕
+            </button>
           </div>
 
-          {/* Close */}
-          <button
-            data-no-drag
-            onClick={onClose}
-            className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-white/35 hover:text-white/80 hover:bg-white/8 transition-colors text-sm"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </div>
+          {/* ── Scrollable body ─────────────────────────────────────────────── */}
+          <div className="flex-1 min-h-0 overflow-y-scroll overscroll-contain [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-white/[0.04] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb:hover]:bg-white/50">
+            {children}
+          </div>
 
-        {/* ── Scrollable body ─────────────────────────────────────────────── */}
-        <div className="flex-1 min-h-0 overflow-y-scroll overscroll-contain [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-white/[0.04] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb:hover]:bg-white/50">
-          {children}
-        </div>
-
-        {/* Resize hint */}
-        <div className="absolute bottom-1.5 right-2 pointer-events-none select-none opacity-20">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M11 1L1 11M11 6L6 11M11 11H11" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-        </div>
-      </div>
-    </>
+          {/* Resize hint */}
+          <div className="absolute bottom-1.5 right-2 pointer-events-none select-none opacity-20">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M11 1L1 11M11 6L6 11M11 11H11" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
+    </RadixDialog.Root>
   )
-
-  return createPortal(modal, document.body)
 }
 
 // ─── Analytics stat row ───────────────────────────────────────────────────────

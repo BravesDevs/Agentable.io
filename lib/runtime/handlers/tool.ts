@@ -70,14 +70,21 @@ export async function handleTool(
   emit: EmitFn,
 ): Promise<NodeContext> {
   const cfg: ToolNodeConfig = {
-    method:  (config?.method as ToolMethod) ?? 'GET',
-    url:     config?.url     ?? '',
-    headers: config?.headers ?? '{}',
-    body:    config?.body    ?? '',
+    method:       (config?.method as ToolMethod) ?? 'GET',
+    url:          config?.url     ?? '',
+    headers:      config?.headers ?? '{}',
+    body:         config?.body    ?? '',
+    forwardInput: config?.forwardInput ?? false,
   }
 
-  const url           = substitute(cfg.url, context).trim()
-  const requestBody   = substitute(cfg.body, context)
+  const url = substitute(cfg.url, context).trim()
+
+  // When `forwardInput` is on, the parent node's output becomes the body verbatim.
+  // Falls back to `input` (the user's original prompt) if no upstream output is set.
+  const requestBody = cfg.forwardInput
+    ? (context.output ?? context.input ?? '')
+    : substitute(cfg.body, context)
+
   const reqHeadersRaw = safeParseHeaders(cfg.headers)
   const reqHeaders    = (cfg.method === 'GET' || cfg.method === 'DELETE')
     ? reqHeadersRaw
