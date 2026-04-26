@@ -42,11 +42,12 @@ import OutputNode   from '@/components/nodes/OutputNode'
 import ShapeNode    from '@/components/nodes/ShapeNode'
 import TextNode     from '@/components/nodes/TextNode'
 import DrawingNode  from '@/components/nodes/DrawingNode'
+import ArrowNode    from '@/components/nodes/ArrowNode'
 
 import NodePalette, { PALETTE_DRAG_MIME } from './NodePalette'
 import DrawingDock from './DrawingDock'
 import {
-  createAgentNode, createShapeNode, createTextNode, createDrawingNode,
+  createAgentNode, createShapeNode, createTextNode, createDrawingNode, createArrowNode,
   type DrawingPoint,
 } from '@/lib/nodeFactory'
 
@@ -61,6 +62,7 @@ const NODE_TYPES: NodeTypes = {
   shape:   ShapeNode,
   text:    TextNode,
   drawing: DrawingNode,
+  arrow:   ArrowNode,
 } as const
 
 const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
@@ -86,6 +88,7 @@ function nodeColor(data: NodeData): string {
     shape:   '#94a3b8',
     text:    '#94a3b8',
     drawing: '#94a3b8',
+    arrow:   '#94a3b8',
   }
   return colors[data.nodeType] ?? '#94a3b8'
 }
@@ -93,7 +96,7 @@ function nodeColor(data: NodeData): string {
 // ─── In-progress drawing preview state ───────────────────────────────────────
 
 type DrawingDraft =
-  | { kind: 'rectangle' | 'ellipse'; startScreen: DrawingPoint; endScreen: DrawingPoint; startFlow: DrawingPoint; endFlow: DrawingPoint }
+  | { kind: 'rectangle' | 'ellipse' | 'arrow'; startScreen: DrawingPoint; endScreen: DrawingPoint; startFlow: DrawingPoint; endFlow: DrawingPoint }
   | { kind: 'pen';       pointsScreen: DrawingPoint[]; pointsFlow: DrawingPoint[] }
 
 // ─── Helpers for the delete-confirmation dialog ──────────────────────────────
@@ -233,7 +236,7 @@ function CanvasInner() {
       return
     }
 
-    if (activeTool === 'rectangle' || activeTool === 'ellipse') {
+    if (activeTool === 'rectangle' || activeTool === 'ellipse' || activeTool === 'arrow') {
       setDraft({ kind: activeTool, startScreen: startScr, endScreen: startScr, startFlow, endFlow: startFlow })
       ;(e.target as Element).setPointerCapture?.(e.pointerId)
       return
@@ -276,6 +279,14 @@ function CanvasInner() {
         ? { x: x - 60, y: y - 40, w: 120, h: 80 }
         : { x, y, w, h }
       addNode(createShapeNode(draft.kind, { x: sized.x, y: sized.y }, { width: sized.w, height: sized.h }, drawingColor))
+    } else if (draft.kind === 'arrow') {
+      // Click-without-drag drops a default horizontal arrow centred on the click
+      const dx = draft.endFlow.x - draft.startFlow.x
+      const dy = draft.endFlow.y - draft.startFlow.y
+      const len = Math.hypot(dx, dy)
+      const start = len < 12 ? { x: draft.startFlow.x - 60, y: draft.startFlow.y } : draft.startFlow
+      const end   = len < 12 ? { x: draft.startFlow.x + 60, y: draft.startFlow.y } : draft.endFlow
+      addNode(createArrowNode(start, end, drawingColor))
     } else if (draft.kind === 'pen') {
       const node = createDrawingNode(draft.pointsFlow, drawingColor, 2)
       if (node) addNode(node)
@@ -300,6 +311,25 @@ function CanvasInner() {
       return (
         <svg className="absolute inset-0 pointer-events-none z-20 w-full h-full" style={{ overflow: 'visible' }}>
           <path d={path} fill="none" stroke={drawingColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+    }
+    if (draft.kind === 'arrow') {
+      const sx = draft.startScreen.x
+      const sy = draft.startScreen.y
+      const ex = draft.endScreen.x
+      const ey = draft.endScreen.y
+      return (
+        <svg className="absolute inset-0 pointer-events-none z-20 w-full h-full" style={{ overflow: 'visible' }}>
+          <defs>
+            <marker id="arrow-preview-end" viewBox="0 0 10 10" refX="9" refY="5"
+                    markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill={drawingColor} />
+            </marker>
+          </defs>
+          <line x1={sx} y1={sy} x2={ex} y2={ey}
+                stroke={drawingColor} strokeWidth={2} strokeLinecap="round"
+                markerEnd="url(#arrow-preview-end)" />
         </svg>
       )
     }

@@ -16,16 +16,16 @@ import type { TokenUsage, ToolRunSnapshot } from '@/lib/types'
 
 export type PortType = 'messages' | 'string' | 'json' | 'any'
 export type AgentNodeKind = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'output'
-export type AnnotationKind = 'shape' | 'text' | 'drawing'
+export type AnnotationKind = 'shape' | 'text' | 'drawing' | 'arrow'
 export type NodeKind  = AgentNodeKind | AnnotationKind
 export type RunStatus = 'idle' | 'running' | 'done' | 'error'
 
-export type DrawingTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'text'
+export type DrawingTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'text' | 'arrow'
 
 export const AGENT_NODE_KINDS: readonly AgentNodeKind[] = ['input', 'prompt', 'llm', 'tool', 'memory', 'output'] as const
 
 export function isAnnotationKind(k: string | undefined): k is AnnotationKind {
-  return k === 'shape' || k === 'text' || k === 'drawing'
+  return k === 'shape' || k === 'text' || k === 'drawing' || k === 'arrow'
 }
 
 export interface Port {

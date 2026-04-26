@@ -3,6 +3,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useStore, useGraphActions, type DrawingTool } from '@/store'
 import type { VAlign, HAlign } from '@/components/nodes/ShapeNode'
+import type { Arrowheads, LineStyle } from '@/lib/nodeFactory'
 
 const ICON_CLS = 'w-4 h-4 stroke-current'
 
@@ -59,6 +60,16 @@ const TOOLS: ToolDef[] = [
       </svg>
     ),
   },
+  {
+    id: 'arrow',
+    label: 'Arrow',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" className={ICON_CLS}>
+        <path d="M4 12h14" strokeLinecap="round" />
+        <path d="M14 7l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
 ]
 
 const PALETTE_COLORS = [
@@ -72,6 +83,25 @@ const PALETTE_COLORS = [
 
 const V_ALIGNS: VAlign[] = ['top', 'center', 'bottom']
 const H_ALIGNS: HAlign[] = ['left', 'center', 'right']
+
+// Arrow variant presets — each maps to a combination of the orthogonal
+// axes (arrowheads / lineStyle / curved) the ArrowNode actually renders from.
+type ArrowVariantKey = 'straight' | 'bidirectional' | 'dotted' | 'line' | 'curved'
+interface ArrowVariantSpec {
+  key:        ArrowVariantKey
+  label:      string
+  arrowheads: Arrowheads
+  lineStyle:  LineStyle
+  curved:     boolean
+}
+const ARROW_VARIANTS: ArrowVariantSpec[] = [
+  { key: 'straight',      label: 'Straight',      arrowheads: 'end',  lineStyle: 'solid',  curved: false },
+  { key: 'bidirectional', label: 'Bidirectional', arrowheads: 'both', lineStyle: 'solid',  curved: false },
+  { key: 'dotted',        label: 'Dotted',        arrowheads: 'end',  lineStyle: 'dotted', curved: false },
+  { key: 'line',          label: 'Line',          arrowheads: 'none', lineStyle: 'solid',  curved: false },
+  { key: 'curved',        label: 'Curved',        arrowheads: 'end',  lineStyle: 'solid',  curved: true  },
+]
+const ARROW_THICKNESSES = [1.5, 2.5, 4]
 
 export default function DrawingDock() {
   const { activeTool, drawingColor, setActiveTool, setDrawingColor } = useStore(useShallow((s) => ({
@@ -93,11 +123,54 @@ export default function DrawingDock() {
     }
   }))
 
+  const selectedArrow = useStore(useShallow((s) => {
+    const sel = s.nodes.find((n) => n.selected && n.data.nodeType === 'arrow')
+    if (!sel) return null
+    const data = sel.data as {
+      color?: string; thickness?: number;
+      arrowheads?: Arrowheads; lineStyle?: LineStyle; curved?: boolean
+    }
+    return {
+      id:         sel.id,
+      color:      data.color      ?? '#fbbf24',
+      thickness:  data.thickness  ?? 2,
+      arrowheads: (data.arrowheads ?? 'end') as Arrowheads,
+      lineStyle:  (data.lineStyle  ?? 'solid') as LineStyle,
+      curved:     data.curved     ?? false,
+    }
+  }))
+
   const { updateNodeData } = useGraphActions()
 
   function applyAlignment(v: VAlign, h: HAlign) {
     if (!selectedShape) return
     updateNodeData(selectedShape.id, { vAlign: v, hAlign: h })
+  }
+
+  function applyArrowVariant(spec: ArrowVariantSpec) {
+    if (!selectedArrow) return
+    updateNodeData(selectedArrow.id, {
+      arrowheads: spec.arrowheads,
+      lineStyle:  spec.lineStyle,
+      curved:     spec.curved,
+    })
+  }
+
+  function applyArrowThickness(t: number) {
+    if (!selectedArrow) return
+    updateNodeData(selectedArrow.id, { thickness: t })
+  }
+
+  function applyArrowColor(c: string) {
+    if (!selectedArrow) return
+    updateNodeData(selectedArrow.id, { color: c })
+  }
+
+  function arrowVariantMatches(a: typeof selectedArrow, spec: ArrowVariantSpec): boolean {
+    if (!a) return false
+    return a.arrowheads === spec.arrowheads
+        && a.lineStyle  === spec.lineStyle
+        && a.curved     === spec.curved
   }
 
   return (
@@ -184,7 +257,114 @@ export default function DrawingDock() {
           </div>
         </div>
       )}
+
+      {selectedArrow && (
+        <div className="flex items-center gap-2 p-1.5 pr-2 rounded-xl bg-[#0f0f11]/90 border border-white/8 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+          <span className="pl-1 text-[10px] font-semibold tracking-wide uppercase text-white/40">Arrow</span>
+
+          <div className="flex items-center gap-0.5">
+            {ARROW_VARIANTS.map((v) => {
+              const active = arrowVariantMatches(selectedArrow, v)
+              return (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => applyArrowVariant(v)}
+                  title={v.label}
+                  className={`w-7 h-7 flex items-center justify-center rounded border transition-colors ${
+                    active
+                      ? 'border-[#00ff88]/50 bg-[#00ff88]/15 text-[#00ff88]'
+                      : 'border-white/10 bg-white/4 text-white/60 hover:border-white/30 hover:bg-white/8 hover:text-white/90'
+                  }`}
+                >
+                  <ArrowVariantIcon spec={v} />
+                </button>
+              )
+            })}
+          </div>
+
+          <span className="w-px h-5 bg-white/10" />
+
+          <div className="flex items-center gap-0.5">
+            {ARROW_THICKNESSES.map((t) => {
+              const active = Math.abs(selectedArrow.thickness - t) < 0.01
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => applyArrowThickness(t)}
+                  title={`Thickness ${t}`}
+                  className={`w-7 h-7 flex items-center justify-center rounded border transition-colors ${
+                    active
+                      ? 'border-[#00ff88]/50 bg-[#00ff88]/15'
+                      : 'border-white/10 bg-white/4 hover:border-white/30 hover:bg-white/8'
+                  }`}
+                >
+                  <span className="block rounded-full" style={{
+                    width: 14,
+                    height: t,
+                    background: active ? '#00ff88' : 'rgba(255,255,255,0.7)',
+                  }} />
+                </button>
+              )
+            })}
+          </div>
+
+          <span className="w-px h-5 bg-white/10" />
+
+          <div className="flex items-center gap-0.5">
+            {PALETTE_COLORS.map((c) => {
+              const active = selectedArrow.color.toLowerCase() === c.toLowerCase()
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => applyArrowColor(c)}
+                  title={c}
+                  className={`w-4 h-4 rounded-full border transition-transform ${
+                    active ? 'border-white/80 scale-110' : 'border-white/15 hover:border-white/40'
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+// Mini SVG preview of an arrow variant for the toolbar buttons.
+function ArrowVariantIcon({ spec }: { spec: ArrowVariantSpec }) {
+  const dash =
+    spec.lineStyle === 'dashed' ? '4 3' :
+    spec.lineStyle === 'dotted' ? '1 2.5' : undefined
+  const showStart = spec.arrowheads === 'start' || spec.arrowheads === 'both'
+  const showEnd   = spec.arrowheads === 'end'   || spec.arrowheads === 'both'
+  const path = spec.curved
+    ? 'M 4 14 Q 11 4 18 12'
+    : 'M 4 11 L 18 11'
+  return (
+    <svg viewBox="0 0 22 18" width="18" height="14" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <defs>
+        <marker id={`vi-e-${spec.key}`} viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" stroke="none" />
+        </marker>
+        <marker id={`vi-s-${spec.key}`} viewBox="0 0 10 10" refX="1" refY="5"
+                markerWidth="4" markerHeight="4" orient="auto">
+          <path d="M 10 0 L 0 5 L 10 10 z" fill="currentColor" stroke="none" />
+        </marker>
+      </defs>
+      <path
+        d={path}
+        strokeLinecap="round"
+        {...(dash ? { strokeDasharray: dash } : {})}
+        markerStart={showStart ? `url(#vi-s-${spec.key})` : undefined}
+        markerEnd={showEnd     ? `url(#vi-e-${spec.key})` : undefined}
+      />
+    </svg>
   )
 }
 

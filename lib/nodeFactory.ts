@@ -148,5 +148,56 @@ export function createDrawingNode(
 }
 
 export function isAnnotationNodeKind(kind: string | undefined): kind is AnnotationKind {
-  return kind === 'shape' || kind === 'text' || kind === 'drawing'
+  return kind === 'shape' || kind === 'text' || kind === 'drawing' || kind === 'arrow'
+}
+
+// ─── Arrow factory ───────────────────────────────────────────────────────────
+
+export type Arrowheads = 'none' | 'start' | 'end' | 'both'
+export type LineStyle  = 'solid' | 'dashed' | 'dotted'
+
+export interface ArrowOptions {
+  arrowheads?: Arrowheads
+  lineStyle?:  LineStyle
+  curved?:     boolean
+  thickness?:  number
+}
+
+export function createArrowNode(
+  start: { x: number; y: number },
+  end:   { x: number; y: number },
+  color: string,
+  opts:  ArrowOptions = {},
+): AgentNode {
+  const minX = Math.min(start.x, end.x)
+  const minY = Math.min(start.y, end.y)
+  // Minimum 24px on each axis so very short drags are still visible
+  const w = Math.max(24, Math.abs(end.x - start.x))
+  const h = Math.max(24, Math.abs(end.y - start.y))
+  const dirX: 1 | -1 = end.x >= start.x ? 1 : -1
+  const dirY: 1 | -1 = end.y >= start.y ? 1 : -1
+
+  return {
+    id:       crypto.randomUUID(),
+    type:     'arrow',
+    position: { x: minX, y: minY },
+    width:    w,
+    height:   h,
+    selectable: true,
+    draggable:  true,
+    data: {
+      label:      'Arrow',
+      nodeType:   'arrow',
+      config:     {},
+      color,
+      thickness:  opts.thickness  ?? 2,
+      arrowheads: opts.arrowheads ?? 'end',
+      lineStyle:  opts.lineStyle  ?? 'solid',
+      curved:     opts.curved     ?? false,
+      dirX,
+      dirY,
+      inputs:  [],
+      outputs: [],
+    },
+  }
 }
