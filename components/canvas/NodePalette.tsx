@@ -1,6 +1,16 @@
 'use client'
 
-import type { AgentNodeKind } from '@/store'
+import { useState } from 'react'
+import { useStore, type AgentNodeKind } from '@/store'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 
 interface PaletteItem {
   kind:  AgentNodeKind
@@ -90,8 +100,47 @@ const PALETTE: PaletteItem[] = [
 export const PALETTE_DRAG_MIME = 'application/agentcraft-node'
 
 export default function NodePalette() {
+  const runId         = useStore((s) => s.runId)
+  const hasRunState   = useStore((s) =>
+    s.nodes.some((n) =>
+      (n.data.runHistory && n.data.runHistory.length > 0) ||
+      n.data.runOutput !== undefined ||
+      (n.data.runStatus && n.data.runStatus !== 'idle')
+    )
+  )
+  const clearRunState = useStore((s) => s.clearRunState)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const isRunning = runId !== null
+  const disabled  = isRunning || !hasRunState
+  const tooltip   = isRunning
+    ? 'A flow is running — stop it before clearing memory'
+    : !hasRunState
+      ? 'Nothing to clear'
+      : 'Clear all run state (preserves graph and node configs)'
+
   return (
     <aside className="absolute left-3 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-1.5 p-2 rounded-xl bg-[#0f0f11]/90 border border-white/8 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setConfirmOpen(true)}
+        title={tooltip}
+        className="group flex items-center gap-2 w-32 px-2.5 py-2 rounded-lg border border-white/8 bg-white/2 text-left transition-colors enabled:hover:border-rose-400/40 enabled:hover:bg-rose-400/5 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+        <span className="text-white/60 group-enabled:group-hover:text-white/90 transition-colors">
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" className={ICON_CLS}>
+            <path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <span className="text-xs font-medium text-white/70 group-enabled:group-hover:text-white/95 transition-colors">
+          Clear Memory
+        </span>
+      </button>
+
+      <div className="h-px bg-white/8 mx-1" />
+
       <div className="text-[9px] font-semibold tracking-widest text-white/30 uppercase px-1.5 pb-1">
         Nodes
       </div>
@@ -114,6 +163,38 @@ export default function NodePalette() {
           </span>
         </button>
       ))}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="max-w-md bg-[#0f0f11] border border-white/10 p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b border-white/8">
+            <DialogTitle className="text-sm font-semibold text-white/90">Clear memory?</DialogTitle>
+            <DialogDescription className="text-[11px] text-white/40 mt-0.5 leading-relaxed">
+              Drops the current run, every node&apos;s output, run history, and any accumulated context.
+              Your graph and node configurations are preserved. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="px-6 py-4 border-t border-white/8 gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs border-white/10 text-white/40 hover:bg-white/5 hover:text-white/70"
+              onClick={() => setConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-400/30 hover:border-rose-400/50"
+              onClick={() => {
+                clearRunState()
+                setConfirmOpen(false)
+              }}
+            >
+              Clear Memory
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   )
 }

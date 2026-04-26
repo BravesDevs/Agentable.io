@@ -12,6 +12,7 @@ import {
   type NodeTypes,
   type IsValidConnection,
   type DefaultEdgeOptions,
+  type OnBeforeDelete,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -19,8 +20,18 @@ import { useShallow } from 'zustand/react/shallow'
 import {
   useNodes, useEdges, useGraphActions, useStore,
   isAnnotationKind,
-  type NodeData, type PortType, type AgentNodeKind,
+  type AgentEdge, type AgentNode, type NodeData, type PortType, type AgentNodeKind,
 } from '@/store'
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 
 import InputNode    from '@/components/nodes/InputNode'
 import PromptNode   from '@/components/nodes/PromptNode'
@@ -85,6 +96,31 @@ type DrawingDraft =
   | { kind: 'rectangle' | 'ellipse'; startScreen: DrawingPoint; endScreen: DrawingPoint; startFlow: DrawingPoint; endFlow: DrawingPoint }
   | { kind: 'pen';       pointsScreen: DrawingPoint[]; pointsFlow: DrawingPoint[] }
 
+// ─── Helpers for the delete-confirmation dialog ──────────────────────────────
+
+function nodeDisplayName(n: AgentNode): string {
+  return (n.data.label as string | undefined) ?? n.data.nodeType ?? 'node'
+}
+
+function nodeInfoText(n: AgentNode): string {
+  const cfg = (n.data.config ?? {}) as Record<string, unknown>
+  switch (n.data.nodeType) {
+    case 'llm':    return `LLM · ${cfg.model ?? '—'}`
+    case 'tool':   return `${cfg.method ?? 'GET'} · ${(cfg.url as string) || 'no url'}`
+    case 'prompt': return 'Prompt template'
+    case 'memory': return `Buffer · k=${cfg.k ?? 10}`
+    case 'input':  return `Input · ${cfg.inputType ?? 'text'}`
+    case 'output': return 'Output sink'
+    default:       return n.data.nodeType
+  }
+}
+
+interface PendingDelete {
+  nodes:   AgentNode[]
+  edges:   AgentEdge[]
+  resolve: (allow: boolean) => void
+}
+
 // ─── Inner component (consumes useReactFlow) ─────────────────────────────────
 
 function CanvasInner() {
@@ -103,6 +139,23 @@ function CanvasInner() {
 
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState<DrawingDraft | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
+
+  // Block delete keystrokes / programmatic deletes for agent nodes until the
+  // user confirms. Annotation nodes (shapes/text/drawings) skip the dialog —
+  // they're decorative and cheap to redraw.
+  const onBeforeDelete = useCallback<OnBeforeDelete<AgentNode, AgentEdge>>(async ({ nodes: delNodes, edges: delEdges }) => {
+    if (delNodes.length === 0) return true
+    if (delNodes.every((n) => isAnnotationKind(n.data.nodeType))) return true
+    return new Promise<boolean>((resolve) => {
+      setPendingDelete({ nodes: delNodes, edges: delEdges, resolve })
+    })
+  }, [])
+
+  function resolveDelete(allow: boolean) {
+    pendingDelete?.resolve(allow)
+    setPendingDelete(null)
+  }
 
   // ── Validate connections by port type ────────────────────────────────────
   const isValidConnection: IsValidConnection = (connection) => {
@@ -295,6 +348,7 @@ function CanvasInner() {
         }}
         onPaneClick={() => setSelectedNode(null)}
         isValidConnection={isValidConnection}
+        onBeforeDelete={onBeforeDelete}
         onlyRenderVisibleElements
         snapToGrid
         snapGrid={[16, 16]}
@@ -318,7 +372,79 @@ function CanvasInner() {
       <NodePalette />
       <DrawingDock />
       {renderPreview()}
+
+      <DeleteConfirmDialog pending={pendingDelete} onResolve={resolveDelete} />
     </div>
+  )
+}
+
+// ─── Delete confirmation dialog ─────────────────────────────────────────────
+
+function DeleteConfirmDialog({
+  pending,
+  onResolve,
+}: {
+  pending:   PendingDelete | null
+  onResolve: (allow: boolean) => void
+}) {
+  const open    = !!pending
+  const count   = pending?.nodes.length ?? 0
+  const single  = count === 1 ? pending!.nodes[0] : null
+  const edgeCt  = pending?.edges.length ?? 0
+
+  const title = single
+    ? `Delete ${nodeDisplayName(single)}?`
+    : `Delete ${count} nodes?`
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onResolve(false) }}>
+      <DialogContent className="max-w-md bg-[#0f0f11] border border-white/10 p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b border-white/8">
+          <DialogTitle className="text-sm font-semibold text-white/90">{title}</DialogTitle>
+          <DialogDescription className="text-[11px] text-white/40 mt-0.5 leading-relaxed font-mono">
+            {single ? (
+              <>
+                {nodeInfoText(single)}
+                {edgeCt > 0 && (
+                  <span className="block mt-1 text-white/30 font-sans">
+                    Also removes {edgeCt} connected edge{edgeCt === 1 ? '' : 's'}.
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="block">
+                  {pending?.nodes.map(nodeDisplayName).join(', ')}
+                </span>
+                {edgeCt > 0 && (
+                  <span className="block mt-1 text-white/30 font-sans">
+                    Also removes {edgeCt} connected edge{edgeCt === 1 ? '' : 's'}.
+                  </span>
+                )}
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="px-6 py-4 border-t border-white/8 gap-2 sm:gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs border-white/10 text-white/40 hover:bg-white/5 hover:text-white/70"
+            onClick={() => onResolve(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            autoFocus
+            className="h-8 text-xs bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-400/30 hover:border-rose-400/50"
+            onClick={() => onResolve(true)}
+          >
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

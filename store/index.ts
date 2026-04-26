@@ -99,6 +99,7 @@ interface Actions {
   appendRunHistory:  (nodeId: string, entry: RunHistoryEntry) => void
   resetRun:          () => void
   completeRun:       () => void
+  clearRunState:     () => void
   // ui
   setSelectedNode: (id: string | null) => void
   closeSidebar:    () => void
@@ -208,6 +209,22 @@ export const useStore = create<State & Actions>()((set) => ({
         if (n.data.runStatus !== 'running') return n
         return { ...n, data: { ...n.data, runStatus: 'done' as RunStatus } }
       }),
+    })),
+
+  // Hard reset: drop all run/session state but preserve graph structure and node configs
+  clearRunState: () =>
+    set((s) => ({
+      runId: null,
+      nodes: s.nodes.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          runStatus:  'idle' as RunStatus,
+          runOutput:  undefined,
+          runMeta:    undefined,
+          runHistory: undefined,
+        },
+      })),
     })),
 
   // ── ui actions ─────────────────────────────────────────────────────────────
