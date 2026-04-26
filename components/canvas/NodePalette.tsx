@@ -177,7 +177,7 @@ export default function NodePalette() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 text-xs border-white/10 text-white/40 hover:bg-white/5 hover:text-white/70"
+              className="h-8 text-xs border-white/10 text-black/80 hover:bg-white/5 hover:text-white/70"
               onClick={() => setConfirmOpen(false)}
             >
               Cancel
