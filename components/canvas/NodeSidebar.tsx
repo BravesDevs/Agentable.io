@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useStore, type NodeKind, type RunHistoryEntry } from '@/store'
+import { useStore, type AgentNodeKind, type RunHistoryEntry } from '@/store'
 import type { ToolRunSnapshot } from '@/lib/types'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
@@ -94,7 +94,7 @@ type ToolForm = z.infer<typeof toolSchema>
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const NODE_META: Record<NodeKind, { label: string; color: string; dot: string }> = {
+const NODE_META: Record<AgentNodeKind, { label: string; color: string; dot: string }> = {
   input:   { label: 'Input Node',   color: 'text-indigo-400',  dot: 'bg-indigo-400'  },
   prompt:  { label: 'Prompt Node',  color: 'text-purple-400',  dot: 'bg-purple-400'  },
   llm:     { label: 'LLM Node',     color: 'text-blue-400',    dot: 'bg-blue-400'    },
@@ -1553,7 +1553,9 @@ export default function NodeSidebar() {
   useEffect(() => { setSaved(false) }, [selectedNodeId])
 
   const node = nodes.find((n) => n.id === selectedNodeId)
-  const meta = node ? NODE_META[node.data.nodeType] : null
+  const meta = node && node.data.nodeType in NODE_META
+    ? NODE_META[node.data.nodeType as AgentNodeKind]
+    : null
 
   function handleSave(config: Record<string, unknown>) {
     if (!selectedNodeId) return

@@ -6,13 +6,21 @@ import { handleLLM } from './handlers/llm'
 import { handleOutput } from './handlers/output'
 import { handleTool } from './handlers/tool'
 
+const ANNOTATION_TYPES = new Set(['shape', 'text', 'drawing'])
+
 export async function execute(
   graph: FlowGraph,
   userInput: string,
   emit: EmitFn,
   fileData?: FileData,
 ): Promise<string> {
-  const sorted = topoSort(graph.nodes, graph.edges)
+  // Annotation nodes (shapes, text, freehand drawings) are decorative only —
+  // strip them and any edges that would touch them before scheduling.
+  const runnableNodes = graph.nodes.filter((n) => !ANNOTATION_TYPES.has(n.type ?? ''))
+  const runnableIds   = new Set(runnableNodes.map((n) => n.id))
+  const runnableEdges = graph.edges.filter((e) => runnableIds.has(e.source) && runnableIds.has(e.target))
+
+  const sorted = topoSort(runnableNodes, runnableEdges)
 
   // Per-node output contexts, keyed by nodeId
   const outputs = new Map<string, NodeContext>()
@@ -22,7 +30,7 @@ export async function execute(
     emit({ type: 'node-start', nodeId: node.id, timestamp: startMs })
 
     // Merge all parent outputs into this node's input context
-    const parentContexts = graph.edges
+    const parentContexts = runnableEdges
       .filter(e => e.target === node.id)
       .map(e => outputs.get(e.source))
       .filter((c): c is NodeContext => c !== undefined)

@@ -15,8 +15,18 @@ import type { TokenUsage, ToolRunSnapshot } from '@/lib/types'
 // ─── Port & Node types ────────────────────────────────────────────────────────
 
 export type PortType = 'messages' | 'string' | 'json' | 'any'
-export type NodeKind  = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'output'
+export type AgentNodeKind = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'output'
+export type AnnotationKind = 'shape' | 'text' | 'drawing'
+export type NodeKind  = AgentNodeKind | AnnotationKind
 export type RunStatus = 'idle' | 'running' | 'done' | 'error'
+
+export type DrawingTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'text'
+
+export const AGENT_NODE_KINDS: readonly AgentNodeKind[] = ['input', 'prompt', 'llm', 'tool', 'memory', 'output'] as const
+
+export function isAnnotationKind(k: string | undefined): k is AnnotationKind {
+  return k === 'shape' || k === 'text' || k === 'drawing'
+}
 
 export interface Port {
   id:   string
@@ -70,6 +80,8 @@ interface State {
   // ui
   selectedNodeId: string | null
   sidebarOpen:    boolean
+  activeTool:     DrawingTool
+  drawingColor:   string
 }
 
 interface Actions {
@@ -90,6 +102,8 @@ interface Actions {
   // ui
   setSelectedNode: (id: string | null) => void
   closeSidebar:    () => void
+  setActiveTool:   (tool: DrawingTool) => void
+  setDrawingColor: (color: string) => void
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -101,6 +115,8 @@ export const useStore = create<State & Actions>()((set) => ({
   runId:          null,
   selectedNodeId: null,
   sidebarOpen:    false,
+  activeTool:     'select',
+  drawingColor:   '#fbbf24',
 
   // ── graph actions ──────────────────────────────────────────────────────────
   onNodesChange: (changes) =>
@@ -198,6 +214,9 @@ export const useStore = create<State & Actions>()((set) => ({
   setSelectedNode: (id) => set({ selectedNodeId: id, sidebarOpen: id !== null }),
 
   closeSidebar: () => set({ sidebarOpen: false, selectedNodeId: null }),
+
+  setActiveTool:   (tool)  => set({ activeTool: tool }),
+  setDrawingColor: (color) => set({ drawingColor: color }),
 }))
 
 // ─── Stable selectors (useShallow prevents re-renders on unrelated changes) ──
