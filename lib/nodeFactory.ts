@@ -63,6 +63,8 @@ export function createShapeNode(
       color,
       text:     '',
       editing:  false,
+      vAlign:   'center',
+      hAlign:   'center',
       inputs:   [],
       outputs:  [],
     },

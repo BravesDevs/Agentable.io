@@ -3,16 +3,39 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { NodeResizer, useReactFlow, type NodeProps } from '@xyflow/react'
 
+export type VAlign = 'top' | 'center' | 'bottom'
+export type HAlign = 'left' | 'center' | 'right'
+
 interface ShapeData {
   shape:    'rectangle' | 'ellipse'
   color:    string
   text?:    string
   editing?: boolean
+  vAlign?:  VAlign
+  hAlign?:  HAlign
+}
+
+const V_TO_FLEX: Record<VAlign, string> = {
+  top:    'flex-start',
+  center: 'center',
+  bottom: 'flex-end',
+}
+const H_TO_FLEX: Record<HAlign, string> = {
+  left:   'flex-start',
+  center: 'center',
+  right:  'flex-end',
+}
+const H_TO_TEXT: Record<HAlign, 'left' | 'center' | 'right'> = {
+  left:   'left',
+  center: 'center',
+  right:  'right',
 }
 
 function ShapeNode({ id, data, selected }: NodeProps) {
   const d = data as unknown as ShapeData
-  const color = d.color ?? '#fbbf24'
+  const color  = d.color  ?? '#fbbf24'
+  const vAlign = d.vAlign ?? 'center'
+  const hAlign = d.hAlign ?? 'center'
 
   const { updateNodeData } = useReactFlow()
   const [editing, setEditing] = useState(false)
@@ -53,12 +76,14 @@ function ShapeNode({ id, data, selected }: NodeProps) {
         handleStyle={{ width: 8, height: 8, borderRadius: 2 }}
       />
       <div
-        className="w-full h-full flex items-center justify-center p-2 select-none"
+        className="w-full h-full flex p-2 select-none"
         onDoubleClick={(e) => { e.stopPropagation(); setEditing(true) }}
         style={{
-          border:       `2px solid ${color}`,
-          background:   `${color}14`,
-          borderRadius: d.shape === 'ellipse' ? '50%' : 6,
+          border:         `2px solid ${color}`,
+          background:     `${color}14`,
+          borderRadius:   d.shape === 'ellipse' ? '50%' : 6,
+          alignItems:     V_TO_FLEX[vAlign],
+          justifyContent: H_TO_FLEX[hAlign],
         }}
       >
         {editing ? (
@@ -73,13 +98,13 @@ function ShapeNode({ id, data, selected }: NodeProps) {
             }}
             onMouseDown={(e) => e.stopPropagation()}
             placeholder="Type…"
-            className="w-full h-full bg-transparent border-none outline-none resize-none text-center font-medium leading-snug placeholder:opacity-40"
-            style={{ color, fontSize: 14 }}
+            className="w-full h-full bg-transparent border-none outline-none resize-none font-medium leading-snug placeholder:opacity-40"
+            style={{ color, fontSize: 14, textAlign: H_TO_TEXT[hAlign] }}
           />
         ) : d.text ? (
           <span
-            className="font-medium leading-snug whitespace-pre-wrap break-words text-center"
-            style={{ color, fontSize: 14 }}
+            className="font-medium leading-snug whitespace-pre-wrap break-words"
+            style={{ color, fontSize: 14, textAlign: H_TO_TEXT[hAlign] }}
           >
             {d.text}
           </span>
@@ -97,6 +122,8 @@ export default memo(ShapeNode, (prev, next) => {
     a.color    === b.color    &&
     a.shape    === b.shape    &&
     a.text     === b.text     &&
-    a.editing  === b.editing
+    a.editing  === b.editing  &&
+    a.vAlign   === b.vAlign   &&
+    a.hAlign   === b.hAlign
   )
 })
