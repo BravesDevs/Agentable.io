@@ -1,4 +1,4 @@
-import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig, SessionKeys, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
+import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, NodeErrorInfo, PromptNodeConfig, SessionKeys, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
 import { topoSort } from './topoSort'
 import { handleInput } from './handlers/input'
 import { handlePrompt } from './handlers/prompt'
@@ -89,12 +89,18 @@ export async function execute(
         ...(node.type === 'tool' && outContext.tool ? { tool: outContext.tool as ToolRunSnapshot } : {}),
       })
     } catch (err) {
-      const toolSnap = (err as Error & { toolSnapshot?: ToolRunSnapshot }).toolSnapshot
+      const toolSnap  = (err as Error & { toolSnapshot?: ToolRunSnapshot }).toolSnapshot
+      const errorMeta = (err as Error & { errorMeta?: NodeErrorInfo }).errorMeta
+      const errorInfo: NodeErrorInfo = errorMeta ?? {
+        code:    'unknown',
+        message: err instanceof Error ? err.message : String(err),
+      }
       emit({
         type:       'node-end',
         nodeId:     node.id,
         status:     'error',
         durationMs: Date.now() - startMs,
+        error:      errorInfo,
         ...(toolSnap ? { tool: toolSnap } : {}),
       })
       throw err

@@ -127,11 +127,21 @@ export interface NodeContext {
   [key: string]: unknown
 }
 
+export type NodeErrorCode = 'usage_exceeded' | 'auth' | 'missing_key' | 'unknown'
+
+export interface NodeErrorInfo {
+  message:   string
+  code:      NodeErrorCode
+  provider?: string
+  model?:    string
+  status?:   number
+}
+
 export type SSEEvent =
   | { type: 'node-start';    nodeId: string; timestamp: number }
   | { type: 'node-delta';    nodeId: string; token: string }
   | { type: 'node-replace';  nodeId: string; output: string }   // replaces (not appends) runOutput
-  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string; tool?: ToolRunSnapshot }
+  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string; tool?: ToolRunSnapshot; error?: NodeErrorInfo }
   | { type: 'run-complete';  runId: string;  status: 'done' | 'error'; error?: string }
 
 export type EmitFn = (event: SSEEvent) => void
