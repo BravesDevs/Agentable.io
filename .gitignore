@@ -40,4 +40,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-./CLAUDE.md
+CLAUDE.md
+@CLAUDE.md
