@@ -2,7 +2,9 @@ import { streamText, streamObject, jsonSchema } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { ModelMessage } from 'ai'
-import type { EmitFn, LLMNodeConfig, NodeContext, TokenUsage } from '@/lib/types'
+import type { EmitFn, LLMNodeConfig, NodeContext, SessionKeys, TokenUsage } from '@/lib/types'
+import { PROVIDERS, type ProviderId, isProviderId } from '@/lib/providers/registry'
+import { resolveProviderKey } from '@/lib/providers/resolveKey'
 
 // OpenAI structured output requires additionalProperties: false on every object node.
 // Apply recursively so nested objects don't trigger the same error.
@@ -29,13 +31,26 @@ function normalizeSchema(schema: Record<string, unknown>): Record<string, unknow
   return result
 }
 
-function resolveModel(config: LLMNodeConfig) {
-  const model = config.model ?? 'claude-sonnet-4-6'
-  const isOpenAI = model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3') || config.provider === 'openai'
-  if (isOpenAI) {
-    return createOpenAI({ apiKey: process.env.OPENAI_API_KEY })(model)
+class MissingApiKeyError extends Error {
+  constructor(public provider: ProviderId) {
+    super(`No API key configured for provider "${provider}". Open the LLM node and add one.`)
+    this.name = 'MissingApiKeyError'
   }
-  return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })(model)
+}
+
+async function resolveModel(config: LLMNodeConfig, sessionKeys?: SessionKeys) {
+  const provider: ProviderId = isProviderId(config.provider) ? config.provider : 'anthropic'
+  const model    = config.model ?? PROVIDERS[provider].models[0].id
+  const apiKey   = await resolveProviderKey(provider, sessionKeys)
+  if (!apiKey) throw new MissingApiKeyError(provider)
+
+  if (provider === 'anthropic') {
+    return createAnthropic({ apiKey })(model)
+  }
+
+  // OpenAI + all OpenAI-compatible providers (google, xai, openrouter)
+  const baseURL = PROVIDERS[provider].baseUrl
+  return createOpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })(model)
 }
 
 export async function handleLLM(
@@ -46,9 +61,12 @@ export async function handleLLM(
 ): Promise<NodeContext> {
   const cfg: LLMNodeConfig = {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
+    model:    'claude-sonnet-4-6',
     ...config,
   }
+
+  const sessionKeys = context.sessionKeys as SessionKeys | undefined
+  const model       = await resolveModel(cfg, sessionKeys)
 
   const messages: ModelMessage[] = context.messages?.length
     ? context.messages
@@ -62,7 +80,7 @@ export async function handleLLM(
     let firstTokenMs: number | undefined
 
     const result = streamObject({
-      model: resolveModel(cfg),
+      model,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       schema: schema as any,
       system: cfg.systemPrompt,
@@ -104,7 +122,7 @@ export async function handleLLM(
   let firstTokenMs: number | undefined
 
   const result = streamText({
-    model: resolveModel(cfg),
+    model,
     system: cfg.systemPrompt,
     messages,
     temperature: cfg.temperature,

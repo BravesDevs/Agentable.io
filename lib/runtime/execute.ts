@@ -1,4 +1,4 @@
-import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
+import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, PromptNodeConfig, SessionKeys, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
 import { topoSort } from './topoSort'
 import { handleInput } from './handlers/input'
 import { handlePrompt } from './handlers/prompt'
@@ -13,6 +13,7 @@ export async function execute(
   userInput: string,
   emit: EmitFn,
   fileData?: FileData,
+  sessionKeys?: SessionKeys,
 ): Promise<string> {
   // Annotation nodes (shapes, text, freehand drawings) are decorative only —
   // strip them and any edges that would touch them before scheduling.
@@ -37,7 +38,11 @@ export async function execute(
 
     const inContext: NodeContext = parentContexts.reduce<NodeContext>(
       (acc, ctx) => ({ ...acc, ...ctx }),
-      { input: userInput, ...(fileData ? { fileData } : {}) },
+      {
+        input: userInput,
+        ...(fileData    ? { fileData }    : {}),
+        ...(sessionKeys ? { sessionKeys } : {}),
+      },
     )
 
     try {

@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from 'react'
 import { useStore } from '@/store'
+import { useSessionKeys } from '@/store/sessionKeys'
 import type { FileData, FlowGraph, TokenUsage, ToolRunSnapshot } from '@/lib/types'
 
 export function useSSERunner() {
@@ -22,6 +23,10 @@ export function useSSERunner() {
   ) => {
     resetRun()
 
+    // Read session-only keys at run time (never from a closure) so the latest
+    // values are sent if the user added a key between renders.
+    const sessionKeys = useSessionKeys.getState().keys
+
     // Start the run — pass graph inline if provided (no DB fetch needed for demos)
     const res = await fetch(`/api/v1/flows/${flowId}/run`, {
       method:  'POST',
@@ -30,6 +35,7 @@ export function useSSERunner() {
         input: userInput,
         ...(graph    ? { graph }    : {}),
         ...(fileData ? { fileData } : {}),
+        ...(Object.keys(sessionKeys).length > 0 ? { sessionKeys } : {}),
       }),
     })
 

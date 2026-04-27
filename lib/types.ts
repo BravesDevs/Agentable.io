@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai'
+import type { ProviderId } from '@/lib/providers/registry'
 
 export type NodeType =
   | 'input' | 'prompt' | 'llm' | 'tool'
@@ -50,7 +51,7 @@ export interface FileData {
 // ─── LLM node ─────────────────────────────────────────────────────────────────
 
 export interface LLMNodeConfig {
-  provider:         'anthropic' | 'openai'
+  provider:         ProviderId
   model?:           string
   systemPrompt?:    string
   temperature?:     number
@@ -58,6 +59,8 @@ export interface LLMNodeConfig {
   structuredOutput?: boolean
   outputSchema?:    Record<string, unknown>   // JSON Schema passed to jsonSchema()
 }
+
+export type SessionKeys = Partial<Record<ProviderId, string>>
 
 export interface PromptNodeConfig {
   template: string
