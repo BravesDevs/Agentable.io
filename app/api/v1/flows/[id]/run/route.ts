@@ -3,7 +3,7 @@ import { db } from '@/lib/db/client'
 import { flows, runs, runNodes } from '@/lib/db/schema'
 import { execute } from '@/lib/runtime/execute'
 import { createRun, publishChunk, closeRun } from '@/lib/runtime/runStore'
-import { formatSSE, type FileData, type FlowGraph, type SSEEvent, type TokenUsage } from '@/lib/types'
+import { formatSSE, type FileData, type FlowGraph, type SessionKeys, type SSEEvent, type TokenUsage } from '@/lib/types'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -20,9 +20,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: flowId } = await params
-  const body      = await request.json() as { input?: string; graph?: FlowGraph; fileData?: FileData }
+  const body      = await request.json() as { input?: string; graph?: FlowGraph; fileData?: FileData; sessionKeys?: SessionKeys }
   const userInput = body.input    ?? ''
   const fileData  = body.fileData
+  const sessionKeys = body.sessionKeys
 
   // Resolve graph: prefer inline body.graph (for testing), else fetch from DB
   let graph: FlowGraph
@@ -73,7 +74,7 @@ export async function POST(
         if (event.type === 'node-end') {
           nodeEndEvents.push(event as SSEEvent & { type: 'node-end' })
         }
-      }, fileData)
+      }, fileData, sessionKeys)
 
       publishChunk(runId, formatSSE({ type: 'run-complete', runId, status: 'done' }))
 

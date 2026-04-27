@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, jsonb, timestamp, integer } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, jsonb, timestamp, integer, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // ─── Flows ────────────────────────────────────────────────────────────────────
 
@@ -78,3 +78,19 @@ export const runEvents = pgTable('run_events', {
   type:    text('type').notNull(),
   payload: jsonb('payload').notNull().default({}),
 })
+
+// ─── API keys ─────────────────────────────────────────────────────────────────
+// One row per (user, provider). Keys are encrypted at rest with AES-256-GCM.
+
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id:             uuid('id').primaryKey().defaultRandom(),
+    userId:         text('user_id').notNull(),
+    provider:       text('provider').notNull(),
+    keyEncrypted:   text('key_encrypted').notNull(),
+    createdAt:      timestamp('created_at').notNull().defaultNow(),
+    updatedAt:      timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex('api_keys_user_provider_idx').on(t.userId, t.provider)],
+)

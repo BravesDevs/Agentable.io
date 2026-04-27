@@ -22,7 +22,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useStore, type AgentNodeKind, type RunHistoryEntry } from '@/store'
+import { useSessionKeys } from '@/store/sessionKeys'
 import type { ToolRunSnapshot } from '@/lib/types'
+import type { ProviderId, ProviderModel } from '@/lib/providers/registry'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
 
@@ -73,9 +75,12 @@ const FILE_EXTS = FILE_EXT_GROUPS.flatMap((g) => [...g.exts])
 const IMAGE_FMTS = ['.jpg','.jpeg','.png','.webp','.gif','.svg']
 
 // ── LLM schema ───────────────────────────────────────────────────────────────
+// Provider + model are open strings — the actual valid set comes from
+// /api/v1/providers and is enforced by the backend handler.
 
 const llmSchema = z.object({
-  model:       z.enum(['claude-sonnet-4-6', 'claude-opus-4-7', 'gpt-4o', 'gpt-4o-mini']),
+  provider:    z.string().min(1),
+  model:       z.string().min(1),
   temperature: z.number().min(0).max(1),
   maxTokens:   z.number().min(100).max(8000),
   systemPrompt: z.string().optional(),
@@ -324,17 +329,21 @@ const DEFAULT_OUTPUT_SCHEMA = JSON.stringify({
   required: ['result'],
 }, null, 2)
 
+interface ProviderEntry { id: ProviderId; label: string; models: ProviderModel[] }
+
 function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: (v: Record<string, unknown>) => void }) {
-  const { control, handleSubmit, watch } = useForm<LLMForm>({
+  const { control, handleSubmit, watch, setValue } = useForm<LLMForm>({
     resolver: zodResolver(llmSchema),
     defaultValues: {
-      model:        (config.model        as LLMForm['model']) ?? 'claude-sonnet-4-6',
-      temperature:  (config.temperature  as number)           ?? 0.7,
-      maxTokens:    (config.maxTokens    as number)           ?? 1000,
-      systemPrompt: (config.systemPrompt as string)           ?? '',
+      provider:     (config.provider     as string) ?? 'anthropic',
+      model:        (config.model        as string) ?? 'claude-sonnet-4-6',
+      temperature:  (config.temperature  as number) ?? 0.7,
+      maxTokens:    (config.maxTokens    as number) ?? 1000,
+      systemPrompt: (config.systemPrompt as string) ?? '',
     },
   })
 
+  const provider  = watch('provider') as ProviderId
   const temp      = watch('temperature')
   const maxTokens = watch('maxTokens')
 
@@ -343,6 +352,96 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
     config.outputSchema ? JSON.stringify(config.outputSchema, null, 2) : DEFAULT_OUTPUT_SCHEMA,
   )
   const [schemaError, setSchemaError] = useState<string | null>(null)
+
+  // ── Provider/model registry (loaded once from server) ─────────────────────
+  const [providers, setProviders] = useState<ProviderEntry[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/v1/providers')
+      .then((r) => r.json())
+      .then((data: { providers: ProviderEntry[] }) => { if (!cancelled) setProviders(data.providers) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const currentProvider = providers.find((p) => p.id === provider)
+  const modelsForProvider = currentProvider?.models ?? []
+
+  // When provider changes and current model isn't in the new list, snap to first model.
+  const watchedModel = watch('model')
+  useEffect(() => {
+    if (modelsForProvider.length === 0) return
+    if (!modelsForProvider.some((m) => m.id === watchedModel)) {
+      setValue('model', modelsForProvider[0].id, { shouldDirty: true })
+    }
+  }, [provider, modelsForProvider, watchedModel, setValue])
+
+  // ── API key state ─────────────────────────────────────────────────────────
+  const setSessionKey   = useSessionKeys((s) => s.setKey)
+  const clearSessionKey = useSessionKeys((s) => s.clearKey)
+  const sessionKeyMap   = useSessionKeys((s) => s.keys)
+
+  const [persistedProviders, setPersistedProviders] = useState<ProviderId[]>([])
+  const refreshPersisted = useCallback(() => {
+    fetch('/api/v1/keys')
+      .then((r) => r.json())
+      .then((data: { keys: { provider: ProviderId }[] }) => {
+        setPersistedProviders(data.keys.map((k) => k.provider))
+      })
+      .catch(() => {})
+  }, [])
+  useEffect(() => { refreshPersisted() }, [refreshPersisted])
+
+  const hasSessionKey  = Boolean(sessionKeyMap[provider])
+  const hasPersistedKey = persistedProviders.includes(provider)
+
+  const [keyInput, setKeyInput]       = useState('')
+  const [persistMode, setPersistMode] = useState<'session' | 'db'>('session')
+  const [keyStatus, setKeyStatus]     = useState<{ kind: 'idle' | 'validating' | 'ok' | 'error'; message?: string }>({ kind: 'idle' })
+
+  // Reset key input when switching providers
+  useEffect(() => { setKeyInput(''); setKeyStatus({ kind: 'idle' }) }, [provider])
+
+  async function handleSaveKey() {
+    const trimmed = keyInput.trim()
+    if (trimmed.length < 8) {
+      setKeyStatus({ kind: 'error', message: 'Key looks too short' })
+      return
+    }
+    setKeyStatus({ kind: 'validating' })
+    try {
+      const res = await fetch('/api/v1/keys', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ provider, apiKey: trimmed, persist: persistMode }),
+      })
+      const data = await res.json().catch(() => ({})) as { error?: string; detail?: string; ok?: boolean }
+      if (!res.ok || !data.ok) {
+        setKeyStatus({ kind: 'error', message: data.error ?? 'Validation failed' })
+        return
+      }
+      if (persistMode === 'session') {
+        setSessionKey(provider, trimmed)
+      } else {
+        // DB-stored — purge any session copy so server-side resolution wins
+        clearSessionKey(provider)
+        refreshPersisted()
+      }
+      setKeyInput('')
+      setKeyStatus({ kind: 'ok', message: persistMode === 'db' ? 'Saved & encrypted' : 'Active for this session' })
+    } catch (err) {
+      setKeyStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  async function handleClearKey() {
+    clearSessionKey(provider)
+    if (hasPersistedKey) {
+      await fetch(`/api/v1/keys/${provider}`, { method: 'DELETE' }).catch(() => {})
+      refreshPersisted()
+    }
+    setKeyStatus({ kind: 'idle' })
+  }
 
   function handleSave(formValues: LLMForm) {
     if (structuredOutput) {
@@ -363,6 +462,28 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
 
   return (
     <form onSubmit={handleSubmit(handleSave)} className="space-y-5">
+      <FieldRow label="Provider">
+        <Controller
+          name="provider"
+          control={control}
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange}>
+              <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-blue-500/30 h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+                {providers.length === 0 && (
+                  <SelectItem value={field.value} disabled>Loading…</SelectItem>
+                )}
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+      </FieldRow>
+
       <FieldRow label="Model">
         <Controller
           name="model"
@@ -373,15 +494,101 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
-                <SelectItem value="claude-sonnet-4-6">Claude Sonnet 4.6</SelectItem>
-                <SelectItem value="claude-opus-4-7">Claude Opus 4.7</SelectItem>
-                <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
+                {modelsForProvider.length === 0 && (
+                  <SelectItem value={field.value} disabled>Loading…</SelectItem>
+                )}
+                {modelsForProvider.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           )}
         />
       </FieldRow>
+
+      {/* ── API Key ──────────────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-white/8 bg-white/2 overflow-hidden">
+        <div className="flex items-center justify-between px-3.5 py-3">
+          <div className="space-y-0.5">
+            <p className="text-[11px] font-semibold text-white/70">
+              {currentProvider?.label ?? provider} API Key
+            </p>
+            <p className="text-[10px] text-white/30">
+              {hasSessionKey   && 'Active for this session'}
+              {!hasSessionKey  && hasPersistedKey && 'Saved in database (encrypted)'}
+              {!hasSessionKey  && !hasPersistedKey && 'No key configured — runs will fail'}
+            </p>
+          </div>
+          {(hasSessionKey || hasPersistedKey) && (
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+              hasPersistedKey
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25'
+                : 'bg-blue-500/15 text-blue-300 border-blue-500/25'
+            }`}>
+              {hasPersistedKey ? 'DB' : 'Session'}
+            </span>
+          )}
+        </div>
+
+        <div className="border-t border-white/8 px-3.5 py-3 space-y-2.5">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder={hasSessionKey || hasPersistedKey ? '•••• replace key' : 'sk-…'}
+            className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 font-mono text-xs h-9 focus-visible:ring-blue-500/30"
+          />
+
+          <div className="flex items-center gap-1 rounded-md border border-white/10 bg-[#1a1a1e] p-0.5">
+            {(['session', 'db'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setPersistMode(mode)}
+                className={`flex-1 text-[10px] font-mono px-2 py-1 rounded transition-colors ${
+                  persistMode === mode
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : 'text-white/40 hover:text-white/70'
+                }`}
+              >
+                {mode === 'session' ? 'This session' : 'Save to DB'}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={!keyInput.trim() || keyStatus.kind === 'validating'}
+              onClick={handleSaveKey}
+              className="flex-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 hover:border-blue-400/50 disabled:opacity-40"
+            >
+              {keyStatus.kind === 'validating' ? 'Validating…' : 'Validate & save'}
+            </Button>
+            {(hasSessionKey || hasPersistedKey) && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleClearKey}
+                className="text-white/40 hover:text-red-300 hover:bg-red-500/10"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+
+          {keyStatus.message && (
+            <p className={`text-[10px] font-mono ${
+              keyStatus.kind === 'error' ? 'text-red-400' :
+              keyStatus.kind === 'ok'    ? 'text-emerald-400' : 'text-white/40'
+            }`}>
+              {keyStatus.message}
+            </p>
+          )}
+        </div>
+      </div>
 
       <FieldRow label="Temperature" hint={temp.toFixed(2)}>
         <Controller
