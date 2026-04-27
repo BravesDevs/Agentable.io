@@ -16,8 +16,6 @@ export interface ProviderSpec {
   models:      ProviderModel[]
   envFallback: string         // process.env key checked when no user-supplied key exists
   baseUrl?:    string         // for OpenAI-compatible providers (google/xai/openrouter)
-  /** Endpoint hit by the validate route to verify a key. */
-  validateUrl: string
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
@@ -25,7 +23,6 @@ export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
     id:          'anthropic',
     label:       'Anthropic',
     envFallback: 'ANTHROPIC_API_KEY',
-    validateUrl: 'https://api.anthropic.com/v1/models',
     models: [
       { id: 'claude-opus-4-7',    label: 'Claude Opus 4.7'    },
       { id: 'claude-sonnet-4-6',  label: 'Claude Sonnet 4.6'  },
@@ -36,7 +33,6 @@ export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
     id:          'openai',
     label:       'OpenAI',
     envFallback: 'OPENAI_API_KEY',
-    validateUrl: 'https://api.openai.com/v1/models',
     models: [
       { id: 'gpt-4o',       label: 'GPT-4o'      },
       { id: 'gpt-4o-mini',  label: 'GPT-4o mini' },
@@ -49,7 +45,6 @@ export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
     label:       'Google',
     envFallback: 'GOOGLE_API_KEY',
     baseUrl:     'https://generativelanguage.googleapis.com/v1beta/openai/',
-    validateUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
     models: [
       { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro'         },
       { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash'       },
@@ -61,7 +56,6 @@ export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
     label:       'xAI (Grok)',
     envFallback: 'XAI_API_KEY',
     baseUrl:     'https://api.x.ai/v1',
-    validateUrl: 'https://api.x.ai/v1/models',
     models: [
       { id: 'grok-4',       label: 'Grok 4'       },
       { id: 'grok-3',       label: 'Grok 3'       },
@@ -73,7 +67,6 @@ export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
     label:       'OpenRouter (Llama / Qwen / DeepSeek)',
     envFallback: 'OPENROUTER_API_KEY',
     baseUrl:     'https://openrouter.ai/api/v1',
-    validateUrl: 'https://openrouter.ai/api/v1/models',
     models: [
       { id: 'meta-llama/llama-3.3-70b-instruct',  label: 'Llama 3.3 70B'        },
       { id: 'meta-llama/llama-3.1-405b-instruct', label: 'Llama 3.1 405B'       },
