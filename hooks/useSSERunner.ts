@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useRef } from 'react'
+import { toast } from 'sonner'
 import { useStore } from '@/store'
 import { useSessionKeys } from '@/store/sessionKeys'
-import type { FileData, FlowGraph, TokenUsage, ToolRunSnapshot } from '@/lib/types'
+import type { FileData, FlowGraph, NodeErrorInfo, TokenUsage, ToolRunSnapshot } from '@/lib/types'
 
 export function useSSERunner() {
   const esRef = useRef<EventSource | null>(null)
@@ -68,7 +69,7 @@ export function useSSERunner() {
     })
 
     es.addEventListener('node-end', (e) => {
-      const { nodeId, status, durationMs, output, usage, model, tool } = JSON.parse(e.data) as {
+      const { nodeId, status, durationMs, output, usage, model, tool, error } = JSON.parse(e.data) as {
         nodeId:     string
         status:     'done' | 'error'
         durationMs: number
@@ -76,6 +77,7 @@ export function useSSERunner() {
         usage?:     TokenUsage
         model?:     string
         tool?:      ToolRunSnapshot
+        error?:     NodeErrorInfo
       }
 
       const nodeData = useStore.getState().nodes.find((n) => n.id === nodeId)?.data
@@ -86,7 +88,30 @@ export function useSSERunner() {
         stage: status === 'done' ? 'Done' : 'Error',
         ...(isTool && tool?.response ? { httpStatus: tool.response.status } : {}),
         ...(isTool && tool?.error    ? { httpError:  tool.error            } : {}),
+        ...(error    ? { httpError: error.message, errorCode: error.code } : {}),
       })
+
+      // Surface usage-limit errors via toast — sonner stacks multiple naturally.
+      // No automatic provider/model fallback: the user must switch in the sidebar.
+      if (status === 'error' && error?.code === 'usage_exceeded') {
+        const where = error.provider && error.model ? `${error.provider} · ${error.model}` : undefined
+        toast.error('Usage limit exceeded', {
+          description: where
+            ? `${where} — switch model or update quota`
+            : 'Switch model or update quota',
+          id: `usage-exceeded:${nodeId}`,   // dedupe per node, but distinct across nodes → stack
+        })
+      } else if (status === 'error' && error?.code === 'missing_key') {
+        toast.error('Missing API key', {
+          description: error.message,
+          id: `missing-key:${nodeId}`,
+        })
+      } else if (status === 'error' && error?.code === 'auth') {
+        toast.error('Authentication failed', {
+          description: error.message,
+          id: `auth:${nodeId}`,
+        })
+      }
 
       // Tool nodes record every attempt — success or failure — so users can inspect what was sent.
       if (isTool && tool) {

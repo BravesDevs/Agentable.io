@@ -1631,11 +1631,11 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
           </div>
         }
       >
-        <div>
+        <div className="flex flex-col h-full min-h-0">
 
           {/* Analytics grid */}
           {selected && (
-            <div className="px-6 py-4 border-b border-white/8 grid grid-cols-2 gap-x-4 gap-y-4">
+            <div className="px-6 py-4 border-b border-white/8 grid grid-cols-2 gap-x-4 gap-y-4 shrink-0">
 
               {/* Left column — model & timing */}
               <div className="space-y-3">
@@ -1714,17 +1714,20 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
             </div>
           )}
 
-          {/* Output text */}
-          <div className="px-6 py-5">
-            <pre className={`text-sm font-mono whitespace-pre-wrap break-words leading-relaxed ${
-              selected?.mode === 'structured' ? 'text-violet-200/80' : 'text-white/80'
-            }`}>
-              {selected?.output}
-            </pre>
+          {/* Output text — code-editor style block, scrolls within the modal */}
+          <div className="flex-1 overflow-auto px-6 py-5 min-h-0">
+            <div className="space-y-2">
+              <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-2">Output</p>
+              <pre className={`text-[11px] font-mono whitespace-pre-wrap break-words leading-relaxed bg-black/40 border border-white/8 rounded-lg px-3 py-2.5 max-h-[60vh] overflow-auto ${
+                selected?.mode === 'structured' ? 'text-violet-200/80' : 'text-white/80'
+              }`}>
+                {selected?.output || <span className="text-white/30 italic">Empty output.</span>}
+              </pre>
+            </div>
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-3 border-t border-white/8 flex items-center justify-between">
+          <div className="px-6 py-3 border-t border-white/8 flex items-center justify-between bg-[#0f0f11] shrink-0">
             <span className="text-[11px] text-white/20 font-mono">
               {selected ? new Date(selected.timestamp).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : ''}
             </span>

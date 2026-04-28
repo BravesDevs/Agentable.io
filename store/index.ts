@@ -51,6 +51,7 @@ export interface RunMeta {
   stage?:      string   // human label: "Thinking…" | "Streaming" | "Done"
   httpStatus?: number   // HTTP response code (Tool nodes)
   httpError?:  string   // error message
+  errorCode?:  'usage_exceeded' | 'auth' | 'missing_key' | 'unknown'   // classification for LLM errors
 }
 
 export interface NodeData {

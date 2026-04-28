@@ -38,6 +38,49 @@ class MissingApiKeyError extends Error {
   }
 }
 
+export type LLMErrorCode = 'usage_exceeded' | 'auth' | 'missing_key' | 'unknown'
+
+export interface LLMErrorMeta {
+  message:  string
+  code:     LLMErrorCode
+  provider: ProviderId
+  model:    string
+  status?:  number
+}
+
+const USAGE_PATTERN =
+  /(rate.?limit|quota|usage.{0,20}(limit|exceed)|credit.{0,20}(balance|exhaust)|insufficient.{0,20}credit|over.{0,5}quota|too.{0,5}many.{0,5}requests)/i
+
+function classifyLLMError(err: unknown, provider: ProviderId, model: string): LLMErrorMeta {
+  if (err instanceof MissingApiKeyError) {
+    return { code: 'missing_key', message: err.message, provider: err.provider, model }
+  }
+
+  // AI SDK errors expose statusCode; some providers return 200 with an error body.
+  const e        = err as { statusCode?: number; status?: number; message?: string; responseBody?: string }
+  const status   = e?.statusCode ?? e?.status
+  const message  = (e?.message ?? String(err)).slice(0, 500)
+  const haystack = `${message} ${e?.responseBody ?? ''}`
+
+  if (status === 429 || status === 402 || USAGE_PATTERN.test(haystack)) {
+    return { code: 'usage_exceeded', message, provider, model, status }
+  }
+  if (status === 401 || status === 403) {
+    return { code: 'auth', message, provider, model, status }
+  }
+  return { code: 'unknown', message, provider, model, status }
+}
+
+/** Error wrapper carrying classification metadata that execute.ts forwards to the SSE stream. */
+class LLMRuntimeError extends Error {
+  constructor(public errorMeta: LLMErrorMeta) {
+    super(errorMeta.message)
+    this.name = 'LLMRuntimeError'
+  }
+}
+
+// The user's configured (provider, model) is the contract — we never silently
+// fall back to a different provider or model on error. Cost control + predictability.
 async function resolveModel(config: LLMNodeConfig, sessionKeys?: SessionKeys) {
   const provider: ProviderId = isProviderId(config.provider) ? config.provider : 'anthropic'
   const model    = config.model ?? PROVIDERS[provider].models[0].id
@@ -65,13 +108,23 @@ export async function handleLLM(
     ...config,
   }
 
+  const providerId: ProviderId = isProviderId(cfg.provider) ? cfg.provider : 'anthropic'
+  const modelId                = cfg.model ?? PROVIDERS[providerId].models[0].id
+
   const sessionKeys = context.sessionKeys as SessionKeys | undefined
-  const model       = await resolveModel(cfg, sessionKeys)
+
+  let model: Awaited<ReturnType<typeof resolveModel>>
+  try {
+    model = await resolveModel(cfg, sessionKeys)
+  } catch (err) {
+    throw new LLMRuntimeError(classifyLLMError(err, providerId, modelId))
+  }
 
   const messages: ModelMessage[] = context.messages?.length
     ? context.messages
     : [{ role: 'user', content: context.output ?? context.input ?? '' }]
 
+  try {
   // ── Structured output path ─────────────────────────────────────────────────
   if (cfg.structuredOutput && cfg.outputSchema) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,5 +208,9 @@ export async function handleLLM(
     output: fullText,
     usage,
     messages: [...messages, { role: 'assistant', content: fullText }],
+  }
+  } catch (err) {
+    if (err instanceof LLMRuntimeError) throw err
+    throw new LLMRuntimeError(classifyLLMError(err, providerId, modelId))
   }
 }
