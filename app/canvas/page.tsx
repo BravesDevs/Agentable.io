@@ -45,7 +45,7 @@ export default function CanvasPage() {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden">
-      <Toolbar flowId={flowId} flowName={flowName} />
+      <Toolbar flowId={flowId} flowName={flowName} onRename={setFlowName} />
       <div className="flex-1 relative overflow-hidden">
         <Canvas />
         <NodeSidebar />

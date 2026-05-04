@@ -11,10 +11,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog'
 import { useStore } from '@/store'
 import { useSSERunner } from '@/hooks/useSSERunner'
 import type { FileData } from '@/lib/types'
+import { toast } from 'sonner'
 
 // ─── Run dialog ───────────────────────────────────────────────────────────────
 
@@ -220,19 +222,73 @@ function RunDialog({ open, onClose, onSubmit, inputType, maxSizeKB, allowedExten
   )
 }
 
+// ─── Reset confirmation dialog ────────────────────────────────────────────────
+
+function ResetDialog({
+  open, onClose, onConfirm, nodeCount, edgeCount,
+}: {
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+  nodeCount: number
+  edgeCount: number
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md bg-white border border-[#d1d9e0] text-[#1f2328] p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b border-[#d1d9e0]">
+          <DialogTitle className="text-sm font-semibold text-[#1f2328]">Reset canvas?</DialogTitle>
+          <DialogDescription className="text-[12px] text-[#59636e] mt-1 leading-relaxed">
+            Removes all <span className="font-medium text-[#1f2328]">{nodeCount}</span> nodes
+            {edgeCount > 0 && <> and <span className="font-medium text-[#1f2328]">{edgeCount}</span> connections</>}{' '}
+            from the canvas, along with any run output. This cannot be undone — save first if you want to keep it.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="px-6 py-3 border-t border-[#d1d9e0] gap-2 sm:gap-2 bg-[#f6f8fa]">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs border-[#d1d9e0] bg-white text-[#1f2328] hover:bg-[#f6f8fa] hover:text-[#1f2328]"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            autoFocus
+            className="h-7 text-xs bg-[#cf222e] hover:bg-[#a40e26] text-white border border-[#a40e26]"
+            onClick={onConfirm}
+          >
+            Reset
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
 
 interface ToolbarProps {
   flowId:    string | null
   flowName?: string
+  onRename?: (name: string) => void
 }
 
-export default function Toolbar({ flowId, flowName }: ToolbarProps) {
-  const nodes = useStore((s) => s.nodes)
-  const runId = useStore((s) => s.runId)
+export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
+  const nodes      = useStore((s) => s.nodes)
+  const edges      = useStore((s) => s.edges)
+  const runId      = useStore((s) => s.runId)
+  const loadGraph    = useStore((s) => s.loadGraph)
+  const clearRunState = useStore((s) => s.clearRunState)
   const { runFlow, stopRun } = useSSERunner()
 
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogOpen, setDialogOpen]   = useState(false)
+  const [resetOpen,   setResetOpen]   = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [savingName,  setSavingName]  = useState(false)
+  const [savingFlow,  setSavingFlow]  = useState(false)
+  const nameInputRef                  = useRef<HTMLInputElement>(null)
 
   // Read input node config to shape the run dialog
   const inputNode        = nodes.find((n) => n.data.nodeType === 'input')
@@ -249,34 +305,181 @@ export default function Toolbar({ flowId, flowName }: ToolbarProps) {
     await runFlow(flowId, text, { id: flowId, nodes: storeNodes as any, edges: storeEdges }, file ?? undefined)
   }
 
+  async function commitName() {
+    if (!flowId) { setEditingName(false); return }
+    const trimmed = (nameInputRef.current?.value ?? '').trim()
+    if (!trimmed || trimmed === flowName) {
+      setEditingName(false)
+      return
+    }
+    setSavingName(true)
+    try {
+      const r = await fetch(`/api/v1/flows/${flowId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (!r.ok) throw new Error(`PATCH failed (${r.status})`)
+      onRename?.(trimmed)
+      toast.success('Canvas renamed')
+    } catch (err) {
+      console.error(err)
+      toast.error('Could not rename canvas')
+    } finally {
+      setSavingName(false)
+      setEditingName(false)
+    }
+  }
+
+  async function handleSaveAll() {
+    if (!flowId) return
+    setSavingFlow(true)
+    try {
+      const storeNodes = useStore.getState().nodes
+      const storeEdges = useStore.getState().edges
+      const r = await fetch(`/api/v1/flows/${flowId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: flowName,
+          json: { nodes: storeNodes, edges: storeEdges },
+        }),
+      })
+      if (!r.ok) throw new Error(`PATCH failed (${r.status})`)
+      toast.success('Saved', { description: `${storeNodes.length} nodes · ${storeEdges.length} edges` })
+    } catch (err) {
+      console.error(err)
+      toast.error('Save failed')
+    } finally {
+      setSavingFlow(false)
+    }
+  }
+
+  function handleReset() {
+    loadGraph([], [])
+    clearRunState()
+    setResetOpen(false)
+    toast.success('Canvas cleared')
+  }
+
+  const canEditName = !!flowId && !savingName
+  const canSave     = !!flowId && !savingFlow
+  const isEmpty     = nodes.length === 0
+  const isRunning   = runId !== null
+
   return (
     <>
-      <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 h-12 shrink-0">
-        {/* Flow name */}
-        <span className="text-sm font-medium text-gray-700 flex-1 truncate">
-          {flowName ?? 'My flow'}
-        </span>
+      <div className="flex items-center gap-2 px-4 py-2 bg-[#f6f8fa] border-b border-[#d1d9e0] h-12 shrink-0">
+        {/* Logo / brand */}
+        <div className="flex items-center gap-2 mr-1">
+          <div className="w-6 h-6 rounded-md bg-gradient-to-br from-[#0969da] to-[#5a61e7] flex items-center justify-center text-white text-[11px] font-bold">
+            A
+          </div>
+        </div>
 
-        <Separator orientation="vertical" className="h-6" />
+        {/* Editable flow name */}
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          {editingName ? (
+            <Input
+              ref={nameInputRef}
+              autoFocus
+              disabled={!canEditName}
+              defaultValue={flowName ?? ''}
+              maxLength={120}
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitName() }
+                if (e.key === 'Escape') { setEditingName(false) }
+              }}
+              className="h-7 max-w-xs text-sm font-medium border-[#0969da] bg-white text-[#1f2328] focus-visible:ring-[#0969da]/30"
+            />
+          ) : (
+            <button
+              type="button"
+              disabled={!flowId}
+              onClick={() => setEditingName(true)}
+              title="Click to rename"
+              className="flex items-center gap-1.5 max-w-xs px-2 py-1 -mx-1 rounded text-sm font-medium text-[#1f2328] hover:bg-[#e6eaef] disabled:opacity-50 disabled:cursor-not-allowed transition-colors group"
+            >
+              <span className="truncate">{flowName ?? 'My flow'}</span>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-[#59636e] opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <path d="M12 20h9" strokeLinecap="round" />
+                <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
+          {savingName && (
+            <span className="text-[10px] text-[#59636e] font-mono">saving…</span>
+          )}
+        </div>
 
-        {/* Run controls */}
-        <div className="flex items-center gap-2">
+        <Separator orientation="vertical" className="h-6 bg-[#d1d9e0]" />
+
+        {/* Reset / Save */}
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!flowId || isEmpty || isRunning}
+            onClick={() => setResetOpen(true)}
+            title={isRunning ? 'Stop the run before resetting' : isEmpty ? 'Canvas is already empty' : 'Clear the canvas'}
+            className="h-7 text-xs border-[#d1d9e0] bg-white text-[#1f2328] hover:bg-[#f6f8fa] hover:text-[#cf222e] hover:border-[#cf222e]/40 disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.7" className="mr-1">
+              <path d="M3 12a9 9 0 1 0 3-6.7" strokeLinecap="round" />
+              <path d="M3 4v5h5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Reset
+          </Button>
+
           <Button
             size="sm"
-            className="h-7 text-xs bg-green-500 hover:bg-green-600 text-white"
-            onClick={() => setDialogOpen(true)}
-            disabled={!flowId || runId !== null}
+            disabled={!canSave}
+            onClick={handleSaveAll}
+            title="Save canvas configuration"
+            className="h-7 text-xs bg-[#1f883d] hover:bg-[#1a7f37] text-white border border-[#1a7f37] disabled:opacity-50"
           >
-            ▶ Run
+            {savingFlow ? (
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" className="mr-1 animate-spin">
+                <path d="M21 12a9 9 0 1 1-6.2-8.5" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.7" className="mr-1">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" strokeLinejoin="round" />
+                <path d="M17 21v-8H7v8M7 3v5h8" strokeLinejoin="round" />
+              </svg>
+            )}
+            Save
+          </Button>
+        </div>
+
+        <Separator orientation="vertical" className="h-6 bg-[#d1d9e0]" />
+
+        {/* Run controls */}
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            className="h-7 text-xs bg-[#2da44e] hover:bg-[#1a7f37] text-white border border-[#1a7f37] disabled:opacity-50"
+            onClick={() => setDialogOpen(true)}
+            disabled={!flowId || isRunning}
+          >
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" className="mr-1">
+              <path d="M6 4l14 8-14 8V4z" />
+            </svg>
+            Run
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 text-xs border-[#d1d9e0] bg-white text-[#1f2328] hover:bg-[#f6f8fa] disabled:opacity-50"
             onClick={stopRun}
-            disabled={runId === null}
+            disabled={!isRunning}
           >
-            ■ Stop
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" className="mr-1">
+              <rect x="6" y="6" width="12" height="12" rx="1.5" />
+            </svg>
+            Stop
           </Button>
         </div>
       </div>
@@ -289,6 +492,14 @@ export default function Toolbar({ flowId, flowName }: ToolbarProps) {
         maxSizeKB={maxSizeKB}
         allowedExtensions={allowedExtensions}
         allowedFormats={allowedFormats}
+      />
+
+      <ResetDialog
+        open={resetOpen}
+        onClose={() => setResetOpen(false)}
+        onConfirm={handleReset}
+        nodeCount={nodes.length}
+        edgeCount={edges.length}
       />
     </>
   )

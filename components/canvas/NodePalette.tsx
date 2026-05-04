@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { useDraggable } from '@/hooks/useDraggable'
 
 interface PaletteItem {
   kind:  AgentNodeKind
@@ -119,8 +120,29 @@ export default function NodePalette() {
       ? 'Nothing to clear'
       : 'Clear all run state (preserves graph and node configs)'
 
+  const { ref: paletteRef, style: paletteStyle, initialized, dragging, handleProps } = useDraggable(
+    () => ({ x: 16, y: Math.max(80, Math.floor((typeof window !== 'undefined' ? window.innerHeight : 720) / 2 - 220)) }),
+    'agentcraft:node-palette-pos',
+  )
+
   return (
-    <aside className="absolute left-3 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-1.5 p-2 rounded-xl bg-[#0f0f11]/90 border border-white/8 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+    <aside
+      ref={paletteRef}
+      style={paletteStyle}
+      className={`absolute z-30 flex flex-col gap-1.5 p-2 rounded-xl bg-[#0f0f11]/90 border border-white/8 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.5)] ${initialized ? '' : 'left-3 top-1/2 -translate-y-1/2'} ${dragging ? 'select-none' : ''}`}
+    >
+      <div
+        {...handleProps}
+        className={`flex items-center justify-between px-1.5 pt-0.5 pb-1.5 -mx-0.5 cursor-grab active:cursor-grabbing select-none rounded-md ${dragging ? 'bg-white/5' : 'hover:bg-white/3'}`}
+        title="Drag to move"
+      >
+        <span className="text-[9px] font-semibold tracking-widest text-white/40 uppercase">Palette</span>
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/30">
+          <circle cx="9" cy="6"  r="1" /><circle cx="15" cy="6"  r="1" />
+          <circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" />
+          <circle cx="9" cy="18" r="1" /><circle cx="15" cy="18" r="1" />
+        </svg>
+      </div>
       <button
         type="button"
         disabled={disabled}

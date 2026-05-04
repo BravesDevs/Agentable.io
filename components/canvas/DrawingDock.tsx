@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useStore, useGraphActions, type DrawingTool } from '@/store'
 import type { VAlign, HAlign } from '@/components/nodes/ShapeNode'
 import type { Arrowheads, LineStyle } from '@/lib/nodeFactory'
+import { useDraggable } from '@/hooks/useDraggable'
 
 const ICON_CLS = 'w-4 h-4 stroke-current'
 
@@ -173,9 +174,34 @@ export default function DrawingDock() {
         && a.curved     === spec.curved
   }
 
+  const { ref: dockRef, style: dockStyle, initialized, dragging, handleProps } = useDraggable(
+    () => {
+      const w = typeof window !== 'undefined' ? window.innerWidth : 1280
+      return { x: Math.max(180, Math.floor(w / 2 - 220)), y: 12 }
+    },
+    'agentcraft:drawing-dock-pos',
+  )
+
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2">
-      <div className="flex items-center gap-1 p-1.5 rounded-xl bg-[#0f0f11]/90 border border-white/8 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+    <div
+      ref={dockRef}
+      style={dockStyle}
+      className={`absolute z-30 flex flex-col items-center gap-2 ${initialized ? '' : 'top-3 left-1/2 -translate-x-1/2'} ${dragging ? 'select-none' : ''}`}
+    >
+      <div className="flex flex-col rounded-xl bg-[#0f0f11]/90 border border-white/8 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden">
+        <div
+          {...handleProps}
+          className={`flex items-center justify-center gap-2 px-2 py-1 cursor-grab active:cursor-grabbing select-none border-b border-white/8 ${dragging ? 'bg-white/5' : 'hover:bg-white/3'}`}
+          title="Drag to move toolbox"
+        >
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/40">
+            <circle cx="9" cy="6"  r="1" /><circle cx="15" cy="6"  r="1" />
+            <circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" />
+            <circle cx="9" cy="18" r="1" /><circle cx="15" cy="18" r="1" />
+          </svg>
+          <span className="text-[9px] font-semibold tracking-widest text-white/40 uppercase">Toolbox</span>
+        </div>
+        <div className="flex items-center gap-1 p-1.5">
         {TOOLS.map((tool) => {
           const active = activeTool === tool.id
           return (
@@ -228,6 +254,7 @@ export default function DrawingDock() {
             Esc
           </button>
         )}
+        </div>
       </div>
 
       {selectedShape && (
