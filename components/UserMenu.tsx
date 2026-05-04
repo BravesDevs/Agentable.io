@@ -46,8 +46,9 @@ export function UserMenu() {
 
   async function handleSignOut() {
     setIsOpen(false)
-    // Call logout endpoint which clears session and redirects
-    window.location.href = '/api/auth/logout?returnTo=/'
+    // Call logout endpoint which clears session and redirects to Auth0 logout
+    // The logout endpoint will handle redirecting back to landing page
+    window.location.href = '/api/auth/logout'
   }
 
   // Show Sign in/Register buttons when not authenticated or still loading
