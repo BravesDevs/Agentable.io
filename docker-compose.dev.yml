@@ -1,0 +1,74 @@
+# Docker Compose for development with PostgreSQL
+
+version: '3.9'
+
+services:
+  # AgentCraft Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: agentcraft-app-dev
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/agentcraft
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      CLIENT_ID: ${CLIENT_ID}
+      CLIENT_SECRET: ${CLIENT_SECRET}
+      API_KEY_SECRET: ${API_KEY_SECRET}
+      DEV_USER_ID: ${DEV_USER_ID:-demo}
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    restart: unless-stopped
+    
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgreSQL Database for local development
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentcraft-db-dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agentcraft
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data_dev:
+    driver: local
+
+networks:
+  default:
+    name: agentcraft-dev-network
+    driver: bridge
