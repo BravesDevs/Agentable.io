@@ -50,7 +50,7 @@ export async function GET(request: Request) {
     })
     await setSessionCookie(session)
 
-    const returnTo = decodeReturnTo(state) ?? '/'
+    const returnTo = decodeReturnTo(state) ?? '/canvas'
     redirect(returnTo)
   } catch (err) {
     // `redirect()` throws a special NEXT_REDIRECT marker — let it bubble.

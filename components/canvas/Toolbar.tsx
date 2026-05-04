@@ -13,6 +13,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { UserMenu } from '@/components/UserMenu'
 import { useStore } from '@/store'
 import { useSSERunner } from '@/hooks/useSSERunner'
 import type { FileData } from '@/lib/types'
@@ -481,6 +482,13 @@ export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
             </svg>
             Stop
           </Button>
+        </div>
+
+        <Separator orientation="vertical" className="h-6 bg-[#d1d9e0]" />
+
+        {/* User menu */}
+        <div className="ml-auto">
+          <UserMenu />
         </div>
       </div>
 

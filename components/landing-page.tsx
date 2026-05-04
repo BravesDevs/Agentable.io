@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { UserMenu } from './UserMenu'
 
 const NAV_LINKS = [
   { href: '#features',   label: 'Features'  },
@@ -99,20 +100,8 @@ function Nav() {
         </ul>
 
         <div className="flex items-center gap-2">
-          {/* Plain <a> — these are server route handlers that 307 to Auth0, so we want a
-              full browser navigation. <Link> would try to RSC-prefetch them and fail. */}
-          <a
-            href="/sign-in"
-            className="text-[13px] text-[#9198a1] hover:text-white px-3 py-1.5 rounded-md transition-colors"
-          >
-            Sign in
-          </a>
-          <a
-            href="/register"
-            className="text-[13px] font-medium px-3 py-1.5 rounded-md bg-gradient-to-b from-[#f6f8fa] to-[#d1d9e0] text-[#0d1117] border border-white/20 hover:from-white hover:to-[#e6edf3] transition-colors"
-          >
-            Register
-          </a>
+          {/* Show UserMenu (which conditionally shows sign in/register or user dropdown) */}
+          <UserMenu />
         </div>
       </nav>
     </header>
