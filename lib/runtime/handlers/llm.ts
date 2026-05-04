@@ -1,10 +1,9 @@
 import { streamText, streamObject, jsonSchema } from 'ai'
-import { createAnthropic } from '@ai-sdk/anthropic'
-import { createOpenAI } from '@ai-sdk/openai'
 import type { ModelMessage } from 'ai'
 import type { EmitFn, LLMNodeConfig, NodeContext, SessionKeys, TokenUsage } from '@/lib/types'
 import { PROVIDERS, type ProviderId, isProviderId } from '@/lib/providers/registry'
-import { resolveProviderKey } from '@/lib/providers/resolveKey'
+import { LLMManager, MissingApiKeyError } from '@/lib/llm-manager'
+import { currentUserId } from '@/lib/auth'
 
 // OpenAI structured output requires additionalProperties: false on every object node.
 // Apply recursively so nested objects don't trigger the same error.
@@ -29,13 +28,6 @@ function normalizeSchema(schema: Record<string, unknown>): Record<string, unknow
     }
   }
   return result
-}
-
-class MissingApiKeyError extends Error {
-  constructor(public provider: ProviderId) {
-    super(`No API key configured for provider "${provider}". Open the LLM node and add one.`)
-    this.name = 'MissingApiKeyError'
-  }
 }
 
 export type LLMErrorCode = 'usage_exceeded' | 'auth' | 'missing_key' | 'unknown'
@@ -83,17 +75,9 @@ class LLMRuntimeError extends Error {
 // fall back to a different provider or model on error. Cost control + predictability.
 async function resolveModel(config: LLMNodeConfig, sessionKeys?: SessionKeys) {
   const provider: ProviderId = isProviderId(config.provider) ? config.provider : 'anthropic'
-  const model    = config.model ?? PROVIDERS[provider].models[0].id
-  const apiKey   = await resolveProviderKey(provider, sessionKeys)
-  if (!apiKey) throw new MissingApiKeyError(provider)
-
-  if (provider === 'anthropic') {
-    return createAnthropic({ apiKey })(model)
-  }
-
-  // OpenAI + all OpenAI-compatible providers (google, xai, openrouter)
-  const baseURL = PROVIDERS[provider].baseUrl
-  return createOpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })(model)
+  const modelId  = config.model ?? PROVIDERS[provider].models[0].id
+  const userId   = await currentUserId()
+  return LLMManager.forUser(userId).getModel(provider, modelId, sessionKeys)
 }
 
 export async function handleLLM(

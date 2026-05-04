@@ -15,7 +15,7 @@ export async function DELETE(
     return Response.json({ error: 'Unknown provider' }, { status: 400 })
   }
 
-  const userId = currentUserId()
+  const userId = await currentUserId()
   await db
     .delete(apiKeys)
     .where(and(eq(apiKeys.userId, userId), eq(apiKeys.provider, provider)))

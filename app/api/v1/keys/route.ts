@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 
 // GET — list providers the user has stored keys for. Never returns the key value.
 export async function GET() {
-  const userId = currentUserId()
+  const userId = await currentUserId()
   const rows   = await db
     .select({ provider: apiKeys.provider, createdAt: apiKeys.createdAt, updatedAt: apiKeys.updatedAt })
     .from(apiKeys)
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   }
 
   if (body.persist === 'db') {
-    const userId    = currentUserId()
+    const userId    = await currentUserId()
     const encrypted = encrypt(body.apiKey.trim())
 
     // Upsert via delete+insert (Drizzle's onConflict needs explicit constraint targeting)

@@ -1,4 +1,65 @@
-import { pgTable, uuid, text, jsonb, timestamp, integer, uniqueIndex } from 'drizzle-orm/pg-core'
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  jsonb,
+  timestamp,
+  integer,
+  boolean,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
+
+// ─── Roles ────────────────────────────────────────────────────────────────────
+// Postgres ENUM. Add new roles by extending this list and running db:push.
+
+export const roleEnum = pgEnum('role', ['admin', 'user', 'guest'])
+export type Role = (typeof roleEnum.enumValues)[number]
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+// PK is the Auth0 `sub` claim (e.g. `auth0|...`, `google-oauth2|...`, `github|...`).
+// Storing the sub directly avoids an extra join and matches what every other table
+// references via FK.
+
+export const users = pgTable(
+  'users',
+  {
+    id:            text('id').primaryKey(),
+    email:         text('email').notNull(),
+    emailVerified: boolean('email_verified').notNull().default(false),
+    name:          text('name'),
+    picture:       text('picture'),
+    role:          roleEnum('role').notNull().default('user'),
+    provider:      text('provider'),                       // auth0 | google-oauth2 | github | email
+    lastLoginAt:   timestamp('last_login_at'),
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+    updatedAt:     timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex('users_email_idx').on(t.email)],
+)
+
+// ─── Profiles ─────────────────────────────────────────────────────────────────
+// Per-user preferences. Split from `users` so identity (auth-derived) stays
+// distinct from app-level settings the user can edit.
+
+export const profiles = pgTable(
+  'profiles',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    userId:          text('user_id')
+                       .notNull()
+                       .references(() => users.id, { onDelete: 'cascade' }),
+    displayName:     text('display_name'),
+    bio:             text('bio'),
+    avatarUrl:       text('avatar_url'),
+    defaultProvider: text('default_provider'),
+    defaultModel:    text('default_model'),
+    preferences:     jsonb('preferences').notNull().default({}),
+    createdAt:       timestamp('created_at').notNull().defaultNow(),
+    updatedAt:       timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex('profiles_user_idx').on(t.userId)],
+)
 
 // ─── Flows ────────────────────────────────────────────────────────────────────
 
@@ -86,7 +147,9 @@ export const apiKeys = pgTable(
   'api_keys',
   {
     id:             uuid('id').primaryKey().defaultRandom(),
-    userId:         text('user_id').notNull(),
+    userId:         text('user_id')
+                      .notNull()
+                      .references(() => users.id, { onDelete: 'cascade' }),
     provider:       text('provider').notNull(),
     keyEncrypted:   text('key_encrypted').notNull(),
     createdAt:      timestamp('created_at').notNull().defaultNow(),
@@ -94,3 +157,11 @@ export const apiKeys = pgTable(
   },
   (t) => [uniqueIndex('api_keys_user_provider_idx').on(t.userId, t.provider)],
 )
+
+// ─── Inferred row types ───────────────────────────────────────────────────────
+
+export type User       = typeof users.$inferSelect
+export type NewUser    = typeof users.$inferInsert
+export type Profile    = typeof profiles.$inferSelect
+export type NewProfile = typeof profiles.$inferInsert
+export type ApiKey     = typeof apiKeys.$inferSelect
