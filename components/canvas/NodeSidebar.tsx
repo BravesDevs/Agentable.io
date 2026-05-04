@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/select'
 import { useStore, type AgentNodeKind, type RunHistoryEntry } from '@/store'
 import { useSessionKeys } from '@/store/sessionKeys'
-import type { ToolRunSnapshot } from '@/lib/types'
+import type { DBColumn, DBDriver, DBMode, DBSchema, DBTable, ToolRunSnapshot } from '@/lib/types'
 import type { ProviderId, ProviderModel } from '@/lib/providers/registry'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
@@ -100,12 +100,13 @@ type ToolForm = z.infer<typeof toolSchema>
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const NODE_META: Record<AgentNodeKind, { label: string; color: string; dot: string }> = {
-  input:   { label: 'Input Node',   color: 'text-indigo-400',  dot: 'bg-indigo-400'  },
-  prompt:  { label: 'Prompt Node',  color: 'text-purple-400',  dot: 'bg-purple-400'  },
-  llm:     { label: 'LLM Node',     color: 'text-blue-400',    dot: 'bg-blue-400'    },
-  tool:    { label: 'Tool Node',    color: 'text-amber-400',   dot: 'bg-amber-400'   },
-  memory:  { label: 'Memory Node',  color: 'text-teal-400',    dot: 'bg-teal-400'    },
-  output:  { label: 'Output Node',  color: 'text-green-400',   dot: 'bg-green-400'   },
+  input:    { label: 'Input Node',    color: 'text-indigo-400', dot: 'bg-indigo-400' },
+  prompt:   { label: 'Prompt Node',   color: 'text-purple-400', dot: 'bg-purple-400' },
+  llm:      { label: 'LLM Node',      color: 'text-blue-400',   dot: 'bg-blue-400'   },
+  tool:     { label: 'Tool Node',     color: 'text-amber-400',  dot: 'bg-amber-400'  },
+  memory:   { label: 'Memory Node',   color: 'text-teal-400',   dot: 'bg-teal-400'   },
+  database: { label: 'Database Node', color: 'text-cyan-400',   dot: 'bg-cyan-400'   },
+  output:   { label: 'Output Node',   color: 'text-green-400',  dot: 'bg-green-400'  },
 }
 
 // ─── Reusable field row ───────────────────────────────────────────────────────
@@ -1359,6 +1360,534 @@ function MemoryForm({
   )
 }
 
+// ─── Database form ───────────────────────────────────────────────────────────
+// Schema Inspector + Query Editor. Driver-aware: SQL drivers get a SQL editor,
+// MongoDB gets a JSON editor. Introspection runs as a one-shot fetch against
+// the API; the resulting schema is rendered as a collapsible tree.
+
+const DRIVERS: { value: DBDriver; label: string }[] = [
+  { value: 'postgres', label: 'PostgreSQL' },
+  { value: 'mysql',    label: 'MySQL'      },
+  { value: 'mongodb',  label: 'MongoDB'    },
+  { value: 'sqlite',   label: 'SQLite'     },
+]
+
+interface DatabaseFormValues {
+  driver:           DBDriver
+  connectionString: string
+  database?:        string
+  mode:             DBMode
+  query:            string
+  rowLimit:         number
+  forwardSchema:    boolean
+  forwardRows:      boolean
+}
+
+function DatabaseForm({
+  config,
+  onSave,
+}: {
+  config: Record<string, unknown>
+  onSave: (v: Record<string, unknown>) => void
+}) {
+  const initial: DatabaseFormValues = {
+    driver:           (config.driver           as DBDriver | undefined) ?? 'postgres',
+    connectionString: (config.connectionString as string   | undefined) ?? '',
+    database:         (config.database         as string   | undefined) ?? '',
+    mode:             (config.mode             as DBMode   | undefined) ?? 'query',
+    query:            (config.query            as string   | undefined) ?? 'SELECT 1',
+    rowLimit:         (config.rowLimit         as number   | undefined) ?? 100,
+    forwardSchema:    (config.forwardSchema    as boolean  | undefined) ?? true,
+    forwardRows:      (config.forwardRows      as boolean  | undefined) ?? true,
+  }
+
+  const [values, setValues] = useState<DatabaseFormValues>(initial)
+  const [schema, setSchema] = useState<DBSchema | null>(null)
+  const [inspecting,  setInspecting]  = useState(false)
+  const [inspectErr,  setInspectErr]  = useState<string | null>(null)
+  const [testing,     setTesting]     = useState(false)
+  const [testResult,  setTestResult]  = useState<{ ok: boolean; message: string; durationMs?: number } | null>(null)
+  const [running,     setRunning]     = useState(false)
+  const [queryResult, setQueryResult] = useState<{ columns: string[]; rows: Array<Record<string, unknown>>; rowCount: number; durationMs: number; command?: string; truncated?: boolean } | null>(null)
+  const [queryError,  setQueryError]  = useState<string | null>(null)
+  const [resultsOpen, setResultsOpen] = useState(false)
+
+  useEffect(() => {
+    onSave(values as unknown as Record<string, unknown>)
+  }, [values])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isSQL  = values.driver !== 'mongodb'
+  const editorLanguage = isSQL ? 'sql' : 'json'
+
+  async function testConnection() {
+    setTesting(true); setTestResult(null)
+    try {
+      const res = await fetch('/api/v1/db/test-connection', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ driver: values.driver, connectionString: values.connectionString }),
+      })
+      const data = await res.json() as { ok: boolean; durationMs?: number; error?: string }
+      if (data.ok) {
+        setTestResult({ ok: true, message: 'Connected', durationMs: data.durationMs })
+      } else {
+        setTestResult({ ok: false, message: data.error ?? `Failed (HTTP ${res.status})`, durationMs: data.durationMs })
+      }
+    } catch (e) {
+      setTestResult({ ok: false, message: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  async function runQueryNow() {
+    setRunning(true); setQueryError(null); setQueryResult(null)
+    try {
+      const res = await fetch('/api/v1/db/query', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          driver:           values.driver,
+          connectionString: values.connectionString,
+          query:            values.query,
+          rowLimit:         values.rowLimit,
+        }),
+      })
+      const data = await res.json() as {
+        ok: boolean
+        error?: string
+        columns?: string[]
+        rows?: Array<Record<string, unknown>>
+        rowCount?: number
+        durationMs?: number
+        command?: string
+        truncated?: boolean
+      }
+      if (data.ok) {
+        setQueryResult({
+          columns:    data.columns    ?? [],
+          rows:       data.rows       ?? [],
+          rowCount:   data.rowCount   ?? 0,
+          durationMs: data.durationMs ?? 0,
+          command:    data.command,
+          truncated:  data.truncated,
+        })
+        setResultsOpen(true)
+      } else {
+        setQueryError(data.error ?? `Failed (HTTP ${res.status})`)
+        setResultsOpen(true)
+      }
+    } catch (e) {
+      setQueryError(e instanceof Error ? e.message : String(e))
+      setResultsOpen(true)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function inspectSchema() {
+    setInspecting(true); setInspectErr(null)
+    try {
+      const res = await fetch('/api/v1/db/introspect', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ driver: values.driver, connectionString: values.connectionString }),
+      })
+      if (!res.ok) {
+        const txt = await res.text()
+        throw new Error(txt || `HTTP ${res.status}`)
+      }
+      const data = await res.json() as DBSchema
+      setSchema(data)
+    } catch (e) {
+      setInspectErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setInspecting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Driver */}
+      <FieldRow label="Driver">
+        <Select value={values.driver} onValueChange={(v) => {
+          setValues((s) => ({ ...s, driver: v as DBDriver }))
+          setTestResult(null)
+        }}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 h-9 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10">
+            {DRIVERS.map((d) => (
+              <SelectItem key={d.value} value={d.value} className="text-white/80 text-xs">
+                {d.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      {/* Connection */}
+      <FieldRow label="Connection String" hint={values.driver === 'mongodb' ? 'mongodb+srv://…' : 'postgres://…'}>
+        <Input
+          type="password"
+          value={values.connectionString}
+          onChange={(e) => {
+            setValues((s) => ({ ...s, connectionString: e.target.value }))
+            setTestResult(null)
+          }}
+          placeholder={values.driver === 'mongodb' ? 'mongodb+srv://user:pass@host/db' : 'postgres://user:pass@host:5432/db'}
+          className="bg-[#1a1a1e] border-white/10 text-white/80 h-9 text-xs font-mono"
+        />
+      </FieldRow>
+
+      {/* Test connection */}
+      <div className="space-y-2">
+        <Button
+          size="sm"
+          type="button"
+          onClick={testConnection}
+          disabled={testing || !values.connectionString}
+          className="h-8 px-3 text-[11px] w-full bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-400/30 disabled:opacity-40"
+        >
+          {testing ? 'Testing…' : 'Test Connection'}
+        </Button>
+        {testResult && (
+          <div
+            className={`px-3 py-2 rounded-lg border ${
+              testResult.ok
+                ? 'bg-emerald-500/10 border-emerald-500/25'
+                : 'bg-red-500/10 border-red-500/25'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  testResult.ok ? 'bg-emerald-400' : 'bg-red-400'
+                }`}
+              />
+              <span
+                className={`text-[11px] font-semibold ${
+                  testResult.ok ? 'text-emerald-300' : 'text-red-300'
+                }`}
+              >
+                {testResult.ok ? 'Connection OK' : 'Connection failed'}
+              </span>
+              {testResult.durationMs != null && (
+                <span className="ml-auto text-[10px] text-white/40 font-mono">
+                  {testResult.durationMs}ms
+                </span>
+              )}
+            </div>
+            {!testResult.ok && (
+              <p className="text-[11px] text-red-300/80 font-mono break-words mt-1 leading-relaxed">
+                {testResult.message}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Mode toggle */}
+      <FieldRow label="Mode">
+        <div className="flex rounded-lg border border-white/10 bg-[#1a1a1e] p-0.5">
+          {(['query', 'introspect'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setValues((s) => ({ ...s, mode: m }))}
+              className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                values.mode === m ? 'bg-cyan-500/20 text-cyan-300' : 'text-white/50 hover:text-white/80'
+              }`}
+            >
+              {m === 'query' ? 'Query Editor' : 'Schema Inspector'}
+            </button>
+          ))}
+        </div>
+      </FieldRow>
+
+      {/* Query editor (mode=query) */}
+      {values.mode === 'query' && (
+        <>
+          <FieldRow label={isSQL ? 'SQL Query' : 'Mongo Query (JSON)'} hint="{{input}} interpolates upstream input">
+            <div className="rounded-lg overflow-hidden border border-white/10 bg-[#0e0e10]">
+              <MonacoEditor
+                height="180px"
+                language={editorLanguage}
+                value={values.query}
+                onChange={(v) => setValues((s) => ({ ...s, query: v ?? '' }))}
+                theme="vs-dark"
+                options={{
+                  minimap:    { enabled: false },
+                  fontSize:   12,
+                  scrollBeyondLastLine: false,
+                  lineNumbers: 'on',
+                  tabSize:    2,
+                  wordWrap:   'on',
+                }}
+              />
+            </div>
+          </FieldRow>
+
+          <FieldRow label="Row Limit" hint={`${values.rowLimit} rows`}>
+            <Slider
+              min={10}
+              max={1000}
+              step={10}
+              value={[values.rowLimit]}
+              onValueChange={([v]) => setValues((s) => ({ ...s, rowLimit: v }))}
+            />
+          </FieldRow>
+
+          <Button
+            size="sm"
+            type="button"
+            onClick={runQueryNow}
+            disabled={running || !values.connectionString || !values.query.trim()}
+            className="h-9 px-3 text-xs w-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/30 disabled:opacity-40 font-semibold tracking-wide"
+          >
+            {running ? 'Running…' : '▶  Run Query'}
+          </Button>
+        </>
+      )}
+
+      {/* Schema inspector (mode=introspect) */}
+      {values.mode === 'introspect' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold tracking-widest text-white/40 uppercase">Schema</span>
+            <Button
+              size="sm"
+              type="button"
+              onClick={inspectSchema}
+              disabled={inspecting || !values.connectionString}
+              className="h-7 px-3 text-[11px] bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-400/30"
+            >
+              {inspecting ? 'Inspecting…' : 'Fetch schema'}
+            </Button>
+          </div>
+          {inspectErr && (
+            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
+              <p className="text-[11px] text-red-400/90 font-mono break-words">{inspectErr}</p>
+            </div>
+          )}
+          {schema && <SchemaTree schema={schema} />}
+          {!schema && !inspectErr && (
+            <p className="text-[11px] text-white/30 italic">
+              Click <em>Fetch schema</em> to inspect tables & columns.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Forward toggles */}
+      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/8">
+        <ToggleSwitch
+          label="Forward schema"
+          checked={values.forwardSchema}
+          onChange={(c) => setValues((s) => ({ ...s, forwardSchema: c }))}
+        />
+        <ToggleSwitch
+          label="Forward rows"
+          checked={values.forwardRows}
+          onChange={(c) => setValues((s) => ({ ...s, forwardRows: c }))}
+        />
+      </div>
+
+      {/* Results modal */}
+      <QueryResultsModal
+        open={resultsOpen}
+        onClose={() => setResultsOpen(false)}
+        result={queryResult}
+        error={queryError}
+        query={values.query}
+      />
+    </div>
+  )
+}
+
+function QueryResultsModal({
+  open,
+  onClose,
+  result,
+  error,
+  query,
+}: {
+  open:    boolean
+  onClose: () => void
+  result:  { columns: string[]; rows: Array<Record<string, unknown>>; rowCount: number; durationMs: number; command?: string; truncated?: boolean } | null
+  error:   string | null
+  query:   string
+}) {
+  const title = (
+    <div className="flex items-center gap-2">
+      <span className="w-2 h-2 rounded-full bg-cyan-400" />
+      <span className="text-sm font-semibold text-white/90">Query Results</span>
+      {error ? (
+        <span className="text-[10px] font-bold rounded px-1.5 py-0.5 border bg-red-500/15 text-red-300 border-red-500/25">
+          ERROR
+        </span>
+      ) : result ? (
+        <>
+          <span className="text-[10px] font-bold rounded px-1.5 py-0.5 border bg-cyan-500/15 text-cyan-300 border-cyan-500/25">
+            {result.command ?? 'OK'}
+          </span>
+          <span className="text-[11px] font-mono text-white/50">
+            {result.rowCount} row{result.rowCount === 1 ? '' : 's'}
+            {result.truncated && <span className="text-amber-400/80"> ⌁ truncated</span>}
+          </span>
+          <span className="text-[11px] font-mono text-white/30 ml-auto pr-2">
+            {result.durationMs}ms
+          </span>
+        </>
+      ) : null}
+    </div>
+  )
+
+  return (
+    <DraggableModal open={open} onClose={onClose} title={title}>
+      <div className="flex flex-col h-full">
+        {/* Echoed query */}
+        <div className="px-5 py-3 border-b border-white/8 bg-black/30 shrink-0">
+          <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-1">Query</p>
+          <pre className="text-[11px] font-mono text-white/60 whitespace-pre-wrap break-all max-h-24 overflow-y-auto">
+            {query.trim() || '— empty —'}
+          </pre>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 min-h-0 px-5 py-4">
+          {error && (
+            <div className="px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/25">
+              <p className="text-[11px] text-red-300/90 font-mono break-words leading-relaxed">
+                {error}
+              </p>
+            </div>
+          )}
+
+          {!error && result && result.rows.length === 0 && (
+            <p className="text-xs text-white/40 italic text-center py-8">
+              No rows returned.
+            </p>
+          )}
+
+          {!error && result && result.rows.length > 0 && (
+            <div className="rounded-lg border border-white/8 overflow-auto">
+              <table className="w-full text-[11px] font-mono">
+                <thead className="bg-white/5 border-b border-white/10 sticky top-0">
+                  <tr>
+                    {result.columns.map((col) => (
+                      <th key={col} className="text-left px-3 py-2 text-cyan-300/90 font-semibold whitespace-nowrap">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {result.rows.map((row, ri) => (
+                    <tr key={ri} className="hover:bg-white/3">
+                      {result.columns.map((col) => {
+                        const v = row[col]
+                        const display = v === null || v === undefined
+                          ? <span className="text-white/25 italic">null</span>
+                          : typeof v === 'object'
+                            ? JSON.stringify(v)
+                            : String(v)
+                        return (
+                          <td key={col} className="px-3 py-1.5 text-white/75 align-top whitespace-pre-wrap break-all max-w-xs">
+                            {display}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </DraggableModal>
+  )
+}
+
+function ToggleSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border transition-colors ${
+        checked
+          ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-300'
+          : 'border-white/10 bg-white/2 text-white/50 hover:bg-white/5'
+      }`}
+    >
+      <span className="text-[11px] font-medium">{label}</span>
+      <span className={`w-7 h-3.5 rounded-full relative transition-colors ${checked ? 'bg-cyan-400/60' : 'bg-white/15'}`}>
+        <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all ${checked ? 'left-3.5' : 'left-0.5'}`} />
+      </span>
+    </button>
+  )
+}
+
+function SchemaTree({ schema }: { schema: DBSchema }) {
+  const grouped = new Map<string, DBTable[]>()
+  for (const t of schema.tables) {
+    const arr = grouped.get(t.schema) ?? []
+    arr.push(t)
+    grouped.set(t.schema, arr)
+  }
+  return (
+    <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+      {Array.from(grouped.entries()).map(([schemaName, tables]) => (
+        <div key={schemaName} className="space-y-1">
+          <p className="text-[10px] font-semibold tracking-widest text-cyan-400/70 uppercase px-1">
+            {schemaName} <span className="text-white/30">· {tables.length}</span>
+          </p>
+          {tables.map((t: DBTable) => (
+            <details key={`${schemaName}.${t.name}`} className="group rounded-md border border-white/8 bg-[#1a1a1e] overflow-hidden">
+              <summary className="cursor-pointer list-none px-2.5 py-1.5 flex items-center gap-2 hover:bg-white/3">
+                <span className="text-[11px] text-white/40 group-open:rotate-90 transition-transform">▸</span>
+                <span className="text-xs font-mono text-white/80">{t.name}</span>
+                <span className="ml-auto text-[10px] text-white/30 font-mono">
+                  {t.columns.length} col{t.columns.length === 1 ? '' : 's'}
+                </span>
+              </summary>
+              <div className="border-t border-white/5 divide-y divide-white/5">
+                {t.columns.map((c: DBColumn) => (
+                  <div key={c.name} className="flex items-center gap-2 px-2.5 py-1">
+                    <span className="text-[11px] font-mono text-white/70 truncate flex-1">
+                      {c.name}
+                    </span>
+                    <span className="text-[10px] font-mono text-cyan-300/60 truncate">
+                      {c.dataType}
+                    </span>
+                    {c.isPrimary && (
+                      <span className="text-[9px] font-bold rounded px-1 py-0.5 bg-amber-500/15 text-amber-300 border border-amber-500/20">
+                        PK
+                      </span>
+                    )}
+                    {c.isForeign && (
+                      <span className="text-[9px] font-bold rounded px-1 py-0.5 bg-violet-500/15 text-violet-300 border border-violet-500/20">
+                        FK
+                      </span>
+                    )}
+                    {!c.nullable && !c.isPrimary && (
+                      <span className="text-[9px] font-bold rounded px-1 py-0.5 bg-white/5 text-white/40 border border-white/10">
+                        NN
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function relativeTime(ts: number): string {
@@ -1830,6 +2359,9 @@ export default function NodeSidebar() {
               onSave={handleSave}
               history={(node.data.runHistory ?? []) as RunHistoryEntry[]}
             />
+          )}
+          {node?.data.nodeType === 'database' && (
+            <DatabaseForm config={node.data.config} onSave={handleSave} />
           )}
           {node?.data.nodeType === 'output' && (
             <OutputHistory history={(node.data.runHistory ?? []) as RunHistoryEntry[]} />

@@ -15,14 +15,14 @@ import type { TokenUsage, ToolRunSnapshot } from '@/lib/types'
 // ─── Port & Node types ────────────────────────────────────────────────────────
 
 export type PortType = 'messages' | 'string' | 'json' | 'any'
-export type AgentNodeKind = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'output'
+export type AgentNodeKind = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'database' | 'output'
 export type AnnotationKind = 'shape' | 'text' | 'drawing' | 'arrow'
 export type NodeKind  = AgentNodeKind | AnnotationKind
 export type RunStatus = 'idle' | 'running' | 'done' | 'error'
 
 export type DrawingTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'text' | 'arrow'
 
-export const AGENT_NODE_KINDS: readonly AgentNodeKind[] = ['input', 'prompt', 'llm', 'tool', 'memory', 'output'] as const
+export const AGENT_NODE_KINDS: readonly AgentNodeKind[] = ['input', 'prompt', 'llm', 'tool', 'memory', 'database', 'output'] as const
 
 export function isAnnotationKind(k: string | undefined): k is AnnotationKind {
   return k === 'shape' || k === 'text' || k === 'drawing' || k === 'arrow'
@@ -52,6 +52,12 @@ export interface RunMeta {
   httpStatus?: number   // HTTP response code (Tool nodes)
   httpError?:  string   // error message
   errorCode?:  'usage_exceeded' | 'auth' | 'missing_key' | 'unknown'   // classification for LLM errors
+  // Database node fields
+  rowCount?:   number   // rows returned by a query
+  tableCount?: number   // tables returned by introspection
+  command?:    string   // SQL command verb (SELECT | INSERT | …)
+  truncated?:  boolean  // result set was clipped to rowLimit
+  errorMsg?:   string   // generic error message (DB and similar)
 }
 
 export interface NodeData {

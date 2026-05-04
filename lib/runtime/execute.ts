@@ -1,10 +1,11 @@
-import type { EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, NodeErrorInfo, PromptNodeConfig, SessionKeys, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
+import type { DBNodeConfig, DBRunSnapshot, EmitFn, FileData, FlowGraph, LLMNodeConfig, NodeContext, NodeErrorInfo, PromptNodeConfig, SessionKeys, TokenUsage, ToolNodeConfig, ToolRunSnapshot } from '@/lib/types'
 import { topoSort } from './topoSort'
 import { handleInput } from './handlers/input'
 import { handlePrompt } from './handlers/prompt'
 import { handleLLM } from './handlers/llm'
 import { handleOutput } from './handlers/output'
 import { handleTool } from './handlers/tool'
+import { handleDatabase } from './handlers/database'
 
 const ANNOTATION_TYPES = new Set(['shape', 'text', 'drawing'])
 
@@ -65,6 +66,10 @@ export async function execute(
           outContext = await handleTool(node.id, node.data.config as ToolNodeConfig, inContext, emit)
           break
 
+        case 'database':
+          outContext = await handleDatabase(node.id, node.data.config as unknown as DBNodeConfig, inContext, emit)
+          break
+
         case 'output':
           outContext = await handleOutput(node.id, undefined, inContext, emit)
           break
@@ -86,11 +91,13 @@ export async function execute(
         output:    outContext.output,
         ...(outContext.usage ? { usage: outContext.usage as TokenUsage } : {}),
         ...(node.type === 'llm'  ? { model: (cfg?.model as string | undefined) ?? 'claude-sonnet-4-6' } : {}),
-        ...(node.type === 'tool' && outContext.tool ? { tool: outContext.tool as ToolRunSnapshot } : {}),
+        ...(node.type === 'tool'     && outContext.tool ? { tool: outContext.tool as ToolRunSnapshot } : {}),
+        ...(node.type === 'database' && outContext.db   ? { db:   outContext.db   as DBRunSnapshot   } : {}),
       })
     } catch (err) {
       const toolSnap  = (err as Error & { toolSnapshot?: ToolRunSnapshot }).toolSnapshot
-      const errorMeta = (err as Error & { errorMeta?: NodeErrorInfo }).errorMeta
+      const dbSnap    = (err as Error & { dbSnapshot?:   DBRunSnapshot   }).dbSnapshot
+      const errorMeta = (err as Error & { errorMeta?:    NodeErrorInfo   }).errorMeta
       const errorInfo: NodeErrorInfo = errorMeta ?? {
         code:    'unknown',
         message: err instanceof Error ? err.message : String(err),
@@ -102,6 +109,7 @@ export async function execute(
         durationMs: Date.now() - startMs,
         error:      errorInfo,
         ...(toolSnap ? { tool: toolSnap } : {}),
+        ...(dbSnap   ? { db:   dbSnap   } : {}),
       })
       throw err
     }

@@ -1,9 +1,10 @@
 import type { ModelMessage } from 'ai'
 import type { ProviderId } from '@/lib/providers/registry'
+import type { DBRunSnapshot, DBSchema, DBQueryResult } from '@/types/db'
 
 export type NodeType =
   | 'input' | 'prompt' | 'llm' | 'tool'
-  | 'memory' | 'mcp' | 'rag' | 'guardrail' | 'output'
+  | 'memory' | 'mcp' | 'rag' | 'guardrail' | 'database' | 'output'
 
 export interface GraphNode {
   id: string
@@ -109,6 +110,11 @@ export type NodeConfig =
   | ToolNodeConfig
   | Record<string, unknown>
 
+// ─── Database node ────────────────────────────────────────────────────────────
+// Re-export DB types for handler and route imports.
+
+export type { DBNodeConfig, DBDriver, DBMode, DBSchema, DBTable, DBColumn, DBQueryResult, DBRunSnapshot } from '@/types/db'
+
 // ─── Token / timing analytics ────────────────────────────────────────────────
 
 export interface TokenUsage {
@@ -124,6 +130,10 @@ export interface NodeContext {
   messages?: ModelMessage[]
   fileData?: FileData
   usage?:    TokenUsage
+  // Database-node propagated state for downstream nodes
+  dbSchema?: DBSchema
+  dbRows?:   DBQueryResult['rows']
+  db?:       DBRunSnapshot
   [key: string]: unknown
 }
 
@@ -141,7 +151,7 @@ export type SSEEvent =
   | { type: 'node-start';    nodeId: string; timestamp: number }
   | { type: 'node-delta';    nodeId: string; token: string }
   | { type: 'node-replace';  nodeId: string; output: string }   // replaces (not appends) runOutput
-  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string; tool?: ToolRunSnapshot; error?: NodeErrorInfo }
+  | { type: 'node-end';      nodeId: string; status: 'done' | 'error'; durationMs: number; output?: string; usage?: TokenUsage; model?: string; tool?: ToolRunSnapshot; db?: DBRunSnapshot; error?: NodeErrorInfo }
   | { type: 'run-complete';  runId: string;  status: 'done' | 'error'; error?: string }
 
 export type EmitFn = (event: SSEEvent) => void
