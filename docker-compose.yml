@@ -1,0 +1,91 @@
+version: '3.9'
+
+services:
+  # AgentCraft Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentcraft-app
+    ports:
+      - "3000:3000"
+    environment:
+      # Next.js
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      
+      # Database (Neon PostgreSQL - production)
+      # For local development with PostgreSQL, uncomment the postgres service below
+      # and use: postgresql://postgres:postgres@postgres:5432/agentcraft
+      DATABASE_URL: ${DATABASE_URL}
+      
+      # LLM API Keys
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      
+      # Auth0 Configuration
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      CLIENT_ID: ${CLIENT_ID}
+      CLIENT_SECRET: ${CLIENT_SECRET}
+      
+      # Application Secrets
+      API_KEY_SECRET: ${API_KEY_SECRET}
+      
+      # Development User ID (optional - for fallback)
+      DEV_USER_ID: ${DEV_USER_ID:-demo}
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/auth/me"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Volumes for development (optional - comment out for production)
+    # volumes:
+    #   - .:/app
+    #   - /app/node_modules
+    #   - /app/.next
+
+  # PostgreSQL Database (optional - for local development)
+  # Uncomment below if you want to use a local PostgreSQL instead of Neon
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: agentcraft-db
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: agentcraft
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   restart: unless-stopped
+
+# Volumes
+volumes:
+  # Uncomment if using local PostgreSQL
+  # postgres_data:
+  #   driver: local
+
+# Networks
+networks:
+  default:
+    name: agentcraft-network
+    driver: bridge
