@@ -97,6 +97,42 @@ const toolSchema = z.object({
 type LLMForm  = z.infer<typeof llmSchema>
 type ToolForm = z.infer<typeof toolSchema>
 
+// ─── Monaco editor option presets ─────────────────────────────────────────────
+// Module-scope so the object reference is stable across renders. Passing a new
+// `options` object each render makes @monaco-editor/react call `updateOptions`
+// on every keystroke, which causes layout churn and dropped/garbled input
+// (notably spaces) in the SQL/JSON/schema editors.
+
+const MONACO_OPTIONS_SCHEMA = {
+  minimap:              { enabled: false },
+  fontSize:             11,
+  lineNumbers:          'off' as const,
+  wordWrap:             'on'  as const,
+  scrollBeyondLastLine: false,
+  padding:              { top: 10, bottom: 10 },
+  renderLineHighlight:  'none' as const,
+  formatOnPaste:        true,
+}
+
+const MONACO_OPTIONS_QUERY = {
+  minimap:              { enabled: false },
+  fontSize:             12,
+  scrollBeyondLastLine: false,
+  lineNumbers:          'on' as const,
+  tabSize:              2,
+  wordWrap:             'on' as const,
+}
+
+const MONACO_OPTIONS_PROMPT = {
+  minimap:              { enabled: false },
+  fontSize:             12,
+  lineNumbers:          'off' as const,
+  wordWrap:             'on'  as const,
+  scrollBeyondLastLine: false,
+  padding:              { top: 10, bottom: 10 },
+  renderLineHighlight:  'none' as const,
+}
+
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const NODE_META: Record<AgentNodeKind, { label: string; color: string; dot: string }> = {
@@ -353,6 +389,14 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
     config.outputSchema ? JSON.stringify(config.outputSchema, null, 2) : DEFAULT_OUTPUT_SCHEMA,
   )
   const [schemaError, setSchemaError] = useState<string | null>(null)
+
+  // Stable callback so @monaco-editor/react doesn't dispose+rebind its
+  // onDidChangeModelContent listener on every parent render — that churn
+  // is what causes characters (especially spaces) to feel dropped.
+  const onSchemaChange = useCallback((v: string | undefined) => {
+    setSchemaStr(v ?? '')
+    setSchemaError(null)
+  }, [])
 
   // ── Provider/model registry (loaded once from server) ─────────────────────
   const [providers, setProviders] = useState<ProviderEntry[]>([])
@@ -674,17 +718,8 @@ function LLMForm({ config, onSave }: { config: Record<string, unknown>; onSave: 
                 language="json"
                 theme="vs-dark"
                 value={schemaStr}
-                onChange={(v) => { setSchemaStr(v ?? ''); setSchemaError(null) }}
-                options={{
-                  minimap:              { enabled: false },
-                  fontSize:             11,
-                  lineNumbers:          'off',
-                  wordWrap:             'on',
-                  scrollBeyondLastLine: false,
-                  padding:              { top: 10, bottom: 10 },
-                  renderLineHighlight:  'none',
-                  formatOnPaste:        true,
-                }}
+                onChange={onSchemaChange}
+                options={MONACO_OPTIONS_SCHEMA}
               />
             </div>
             {schemaError && (
@@ -721,6 +756,8 @@ function PromptForm({ config, onSave }: { config: Record<string, unknown>; onSav
   const [val, setVal] = useState((config.template as string) ?? '')
   const vars = [...new Set((val.match(/\{\{(\w+)\}\}/g) ?? []).map((m) => m.replace(/\{|\}/g, '')))]
 
+  const onTemplateChange = useCallback((v: string | undefined) => setVal(v ?? ''), [])
+
   return (
     <div className="space-y-4">
       <FieldRow label="Template">
@@ -730,16 +767,8 @@ function PromptForm({ config, onSave }: { config: Record<string, unknown>; onSav
             language="handlebars"
             theme="vs-dark"
             value={val}
-            onChange={(v) => setVal(v ?? '')}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 12,
-              lineNumbers: 'off',
-              wordWrap: 'on',
-              scrollBeyondLastLine: false,
-              padding: { top: 10, bottom: 10 },
-              renderLineHighlight: 'none',
-            }}
+            onChange={onTemplateChange}
+            options={MONACO_OPTIONS_PROMPT}
           />
         </div>
       </FieldRow>
@@ -1412,12 +1441,27 @@ function DatabaseForm({
   const [queryError,  setQueryError]  = useState<string | null>(null)
   const [resultsOpen, setResultsOpen] = useState(false)
 
+  // Debounce the autosave — calling onSave on every keystroke pushes a store
+  // update through the parent (NodeSidebar → updateNodeData → re-render →
+  // setSaved/setTimeout cascade), and that burst of work mid-typing is what
+  // makes characters (especially spaces) feel dropped in the Monaco editor.
+  // First render is skipped so we don't immediately re-write config on mount.
+  const isFirstSave = useRef(true)
   useEffect(() => {
-    onSave(values as unknown as Record<string, unknown>)
+    if (isFirstSave.current) { isFirstSave.current = false; return }
+    const t = setTimeout(() => {
+      onSave(values as unknown as Record<string, unknown>)
+    }, 250)
+    return () => clearTimeout(t)
   }, [values])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const isSQL  = values.driver !== 'mongodb'
   const editorLanguage = isSQL ? 'sql' : 'json'
+
+  // Stable callback — see note on MONACO_OPTIONS_* about why this matters.
+  const onQueryChange = useCallback((v: string | undefined) => {
+    setValues((s) => ({ ...s, query: v ?? '' }))
+  }, [])
 
   async function testConnection() {
     setTesting(true); setTestResult(null)
@@ -1615,16 +1659,9 @@ function DatabaseForm({
                 height="180px"
                 language={editorLanguage}
                 value={values.query}
-                onChange={(v) => setValues((s) => ({ ...s, query: v ?? '' }))}
+                onChange={onQueryChange}
                 theme="vs-dark"
-                options={{
-                  minimap:    { enabled: false },
-                  fontSize:   12,
-                  scrollBeyondLastLine: false,
-                  lineNumbers: 'on',
-                  tabSize:    2,
-                  wordWrap:   'on',
-                }}
+                options={MONACO_OPTIONS_QUERY}
               />
             </div>
           </FieldRow>
