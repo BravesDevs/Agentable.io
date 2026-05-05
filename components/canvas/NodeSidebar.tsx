@@ -1746,7 +1746,7 @@ function QueryResultsModal({
 
   return (
     <DraggableModal open={open} onClose={onClose} title={title}>
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         {/* Echoed query */}
         <div className="px-5 py-3 border-b border-white/8 bg-black/30 shrink-0">
           <p className="text-[9px] font-semibold tracking-widest text-white/30 uppercase mb-1">Query</p>
@@ -1756,7 +1756,7 @@ function QueryResultsModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 px-5 py-4">
+        <div className="flex-1 min-h-0 flex flex-col px-5 py-4">
           {error && (
             <div className="px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/25">
               <p className="text-[11px] text-red-300/90 font-mono break-words leading-relaxed">
@@ -1772,30 +1772,47 @@ function QueryResultsModal({
           )}
 
           {!error && result && result.rows.length > 0 && (
-            <div className="rounded-lg border border-white/8 overflow-auto">
-              <table className="w-full text-[11px] font-mono">
-                <thead className="bg-white/5 border-b border-white/10 sticky top-0">
+            <div
+              className="flex-1 min-h-0 rounded-lg border border-white/8 bg-black/20 overflow-auto overscroll-contain [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-white/[0.04] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb:hover]:bg-white/50 [&::-webkit-scrollbar-corner]:bg-transparent"
+            >
+              <table className="text-[11px] font-mono border-separate border-spacing-0 w-max min-w-full">
+                <thead>
                   <tr>
+                    <th className="sticky top-0 left-0 z-30 bg-[#16161a] border-b border-r border-white/10 px-2 py-2 text-right text-white/30 font-semibold w-10">
+                      #
+                    </th>
                     {result.columns.map((col) => (
-                      <th key={col} className="text-left px-3 py-2 text-cyan-300/90 font-semibold whitespace-nowrap">
+                      <th
+                        key={col}
+                        title={col}
+                        className="sticky top-0 z-20 bg-[#16161a] border-b border-white/10 text-left px-3 py-2 text-cyan-300/90 font-semibold whitespace-nowrap"
+                      >
                         {col}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5">
+                <tbody>
                   {result.rows.map((row, ri) => (
-                    <tr key={ri} className="hover:bg-white/3">
+                    <tr key={ri} className="group">
+                      <td className="sticky left-0 z-10 bg-[#0f0f11] group-hover:bg-white/[0.04] border-b border-r border-white/5 px-2 py-1.5 text-right text-white/25 tabular-nums w-10">
+                        {ri + 1}
+                      </td>
                       {result.columns.map((col) => {
                         const v = row[col]
-                        const display = v === null || v === undefined
-                          ? <span className="text-white/25 italic">null</span>
+                        const isNull = v === null || v === undefined
+                        const text = isNull
+                          ? 'null'
                           : typeof v === 'object'
                             ? JSON.stringify(v)
                             : String(v)
                         return (
-                          <td key={col} className="px-3 py-1.5 text-white/75 align-top whitespace-pre-wrap break-all max-w-xs">
-                            {display}
+                          <td
+                            key={col}
+                            title={text}
+                            className="border-b border-white/5 px-3 py-1.5 align-top text-white/80 whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] group-hover:bg-white/[0.04]"
+                          >
+                            {isNull ? <span className="text-white/25 italic">null</span> : text}
                           </td>
                         )
                       })}
@@ -1964,6 +1981,68 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
     window.addEventListener('mouseup',   onUp)
   }, [pos])
 
+  // Custom resize: native CSS `resize: both` was being shadowed by child elements
+  // covering the bottom-right corner. Manual handles per corner also let us resize
+  // from NW/NE/SW (which require shifting `left`/`top` as width/height shrink).
+  const startResize = useCallback((dir: 'nw' | 'ne' | 'sw' | 'se') => (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!modalRef.current) return
+    e.preventDefault()
+    e.stopPropagation()
+    const rect   = modalRef.current.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const startW = rect.width
+    const startH = rect.height
+    const startL = rect.left
+    const startT = rect.top
+    const MIN_W  = 480
+    const MIN_H  = 380
+
+    const onMove = (ev: MouseEvent) => {
+      if (!modalRef.current) return
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+
+      let newW = startW
+      let newH = startH
+      let newL = startL
+      let newT = startT
+
+      if (dir === 'se' || dir === 'ne') {
+        newW = Math.max(MIN_W, Math.min(window.innerWidth - startL - 16, startW + dx))
+      }
+      if (dir === 'sw' || dir === 'nw') {
+        const right    = startL + startW
+        const proposed = startL + dx
+        const clampedL = Math.max(0, Math.min(right - MIN_W, proposed))
+        newL = clampedL
+        newW = right - clampedL
+      }
+      if (dir === 'se' || dir === 'sw') {
+        newH = Math.max(MIN_H, Math.min(window.innerHeight - startT - 16, startH + dy))
+      }
+      if (dir === 'ne' || dir === 'nw') {
+        const bottom   = startT + startH
+        const proposed = startT + dy
+        const clampedT = Math.max(0, Math.min(bottom - MIN_H, proposed))
+        newT = clampedT
+        newH = bottom - clampedT
+      }
+
+      modalRef.current.style.width  = `${newW}px`
+      modalRef.current.style.height = `${newH}px`
+      if (newL !== startL || newT !== startT) {
+        setPos({ x: Math.round(newL), y: Math.round(newT) })
+      }
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup',   onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup',   onUp)
+  }, [])
+
   // Why: Radix Dialog's DismissableLayer stack ensures only the topmost layer
   // processes outside-click/escape events, so a nested Dialog never bubbles its
   // events up to the parent Sheet. We then preventDefault on every dismiss path
@@ -1983,7 +2062,6 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
             top:       pos?.y ?? 0,
             minWidth:  480,
             minHeight: 380,
-            resize:    'both',
             overflow:  'hidden',
             visibility: pos ? 'visible' : 'hidden',
           }}
@@ -2021,13 +2099,40 @@ function DraggableModal({ open, onClose, title, children }: DraggableModalProps)
           </div>
 
           {/* ── Scrollable body ─────────────────────────────────────────────── */}
-          <div className="flex-1 min-h-0 overflow-y-scroll overscroll-contain [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-white/[0.04] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb:hover]:bg-white/50">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-white/[0.04] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb:hover]:bg-white/50">
             {children}
           </div>
 
-          {/* Resize hint */}
-          <div className="absolute bottom-1.5 right-2 pointer-events-none select-none opacity-20">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          {/* Resize handles — one per corner. Native CSS `resize` only supports
+              bottom-right and was unreachable behind child elements anyway. */}
+          <div
+            data-no-drag
+            onMouseDown={startResize('nw')}
+            aria-label="Resize from top-left"
+            className="absolute top-0 left-0 w-5 h-5 cursor-nwse-resize z-10"
+          />
+          <div
+            data-no-drag
+            onMouseDown={startResize('ne')}
+            aria-label="Resize from top-right"
+            className="absolute top-0 right-0 w-5 h-5 cursor-nesw-resize z-10"
+          />
+          <div
+            data-no-drag
+            onMouseDown={startResize('sw')}
+            aria-label="Resize from bottom-left"
+            className="absolute bottom-0 left-0 w-5 h-5 cursor-nesw-resize z-10"
+          />
+          <div
+            data-no-drag
+            onMouseDown={startResize('se')}
+            aria-label="Resize from bottom-right"
+            className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-10 group/resize"
+          >
+            <svg
+              width="12" height="12" viewBox="0 0 12 12" fill="none"
+              className="absolute bottom-1.5 right-1.5 opacity-30 group-hover/resize:opacity-80 transition-opacity pointer-events-none"
+            >
               <path d="M11 1L1 11M11 6L6 11M11 11H11" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
