@@ -1,26 +1,36 @@
 import type { AgentNode, AgentNodeKind, AnnotationKind } from '@/store'
 
 const AGENT_DEFAULTS: Record<AgentNodeKind, Record<string, unknown>> = {
-  input:  { inputType: 'text' },
-  prompt: { template: 'You are a helpful assistant.\n\nUser: {{input}}' },
-  llm:    { provider: 'anthropic', model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 1000 },
-  tool:   { method: 'GET', url: '', headers: '{}', body: '', forwardInput: false },
-  memory: { k: 10 },
-  output: {},
+  input:    { inputType: 'text' },
+  prompt:   { template: 'You are a helpful assistant.\n\nUser: {{input}}' },
+  llm:      { provider: 'anthropic', model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 1000 },
+  tool:     { method: 'GET', url: '', headers: '{}', body: '', forwardInput: false },
+  memory:   { k: 10 },
+  database: {
+    driver:           'postgres',
+    connectionString: '',
+    mode:             'query',
+    query:            'SELECT 1',
+    rowLimit:         100,
+    forwardSchema:    true,
+    forwardRows:      true,
+  },
+  output:   {},
 }
 
 const PORT_MAP: Record<AgentNodeKind, { inputs: AgentNode['data']['inputs']; outputs: AgentNode['data']['outputs'] }> = {
-  input:  { inputs: [],                                                outputs: [{ id: 'text-out',    type: 'string'   }] },
-  prompt: { inputs: [{ id: 'vars-in',     type: 'any' }],             outputs: [{ id: 'text-out',    type: 'string'   }] },
-  llm:    { inputs: [{ id: 'messages-in', type: 'messages' }, { id: 'system-in', type: 'string' }], outputs: [{ id: 'messages-out', type: 'messages' }, { id: 'text-out', type: 'string' }] },
-  tool:   { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
-  memory: { inputs: [{ id: 'messages-in', type: 'messages' }],        outputs: [{ id: 'messages-out',type: 'messages' }] },
-  output: { inputs: [{ id: 'text-in',     type: 'string'   }],        outputs: []                                       },
+  input:    { inputs: [],                                                outputs: [{ id: 'text-out',    type: 'string'   }] },
+  prompt:   { inputs: [{ id: 'vars-in',     type: 'any' }],             outputs: [{ id: 'text-out',    type: 'string'   }] },
+  llm:      { inputs: [{ id: 'messages-in', type: 'messages' }, { id: 'system-in', type: 'string' }], outputs: [{ id: 'messages-out', type: 'messages' }, { id: 'text-out', type: 'string' }] },
+  tool:     { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
+  memory:   { inputs: [{ id: 'messages-in', type: 'messages' }],        outputs: [{ id: 'messages-out',type: 'messages' }] },
+  database: { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
+  output:   { inputs: [{ id: 'text-in',     type: 'string'   }],        outputs: []                                       },
 }
 
 const AGENT_LABELS: Record<AgentNodeKind, string> = {
   input: '+ Input', prompt: '+ Prompt', llm: '+ LLM',
-  tool: '+ Tool', memory: '+ Memory', output: '+ Output',
+  tool: '+ Tool', memory: '+ Memory', database: '+ Database', output: '+ Output',
 }
 
 export const AGENT_NODE_LABELS = AGENT_LABELS

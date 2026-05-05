@@ -4,7 +4,7 @@ import { useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { useStore } from '@/store'
 import { useSessionKeys } from '@/store/sessionKeys'
-import type { FileData, FlowGraph, NodeErrorInfo, TokenUsage, ToolRunSnapshot } from '@/lib/types'
+import type { DBRunSnapshot, FileData, FlowGraph, NodeErrorInfo, TokenUsage, ToolRunSnapshot } from '@/lib/types'
 
 export function useSSERunner() {
   const esRef = useRef<EventSource | null>(null)
@@ -69,7 +69,7 @@ export function useSSERunner() {
     })
 
     es.addEventListener('node-end', (e) => {
-      const { nodeId, status, durationMs, output, usage, model, tool, error } = JSON.parse(e.data) as {
+      const { nodeId, status, durationMs, output, usage, model, tool, db, error } = JSON.parse(e.data) as {
         nodeId:     string
         status:     'done' | 'error'
         durationMs: number
@@ -77,17 +77,26 @@ export function useSSERunner() {
         usage?:     TokenUsage
         model?:     string
         tool?:      ToolRunSnapshot
+        db?:        DBRunSnapshot
         error?:     NodeErrorInfo
       }
 
       const nodeData = useStore.getState().nodes.find((n) => n.id === nodeId)?.data
       const isTool   = nodeData?.nodeType === 'tool'
+      const isDb     = nodeData?.nodeType === 'database'
 
       setRunStatus(nodeId, status, output, {
         durationMs,
         stage: status === 'done' ? 'Done' : 'Error',
         ...(isTool && tool?.response ? { httpStatus: tool.response.status } : {}),
         ...(isTool && tool?.error    ? { httpError:  tool.error            } : {}),
+        ...(isDb && db?.result ? {
+          rowCount:  db.result.rowCount,
+          command:   db.result.command,
+          truncated: db.result.truncated,
+        } : {}),
+        ...(isDb && db?.schema ? { tableCount: db.schema.tables.length } : {}),
+        ...(isDb && db?.error  ? { errorMsg:   db.error                } : {}),
         ...(error    ? { httpError: error.message, errorCode: error.code } : {}),
       })
 

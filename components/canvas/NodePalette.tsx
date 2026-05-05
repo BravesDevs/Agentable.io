@@ -85,6 +85,20 @@ const PALETTE: PaletteItem[] = [
     ),
   },
   {
+    kind: 'database',
+    label: 'Database',
+    dot:   'bg-cyan-400',
+    hover: 'group-hover:border-cyan-400/40 group-hover:bg-cyan-400/5',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" className={ICON_CLS}>
+        <ellipse cx="12" cy="5" rx="8" ry="2.5" />
+        <path d="M4 5v14c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V5" />
+        <path d="M4 10c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5" />
+        <path d="M4 15c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5" />
+      </svg>
+    ),
+  },
+  {
     kind: 'output',
     label: 'Output',
     dot:   'bg-green-400',

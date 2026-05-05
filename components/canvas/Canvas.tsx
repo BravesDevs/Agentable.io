@@ -33,16 +33,17 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
-import InputNode    from '@/components/nodes/InputNode'
-import PromptNode   from '@/components/nodes/PromptNode'
-import LLMNode      from '@/components/nodes/LLMNode'
-import ToolNode     from '@/components/nodes/ToolNode'
-import MemoryNode   from '@/components/nodes/MemoryNode'
-import OutputNode   from '@/components/nodes/OutputNode'
-import ShapeNode    from '@/components/nodes/ShapeNode'
-import TextNode     from '@/components/nodes/TextNode'
-import DrawingNode  from '@/components/nodes/DrawingNode'
-import ArrowNode    from '@/components/nodes/ArrowNode'
+import InputNode     from '@/components/nodes/InputNode'
+import PromptNode    from '@/components/nodes/PromptNode'
+import LLMNode       from '@/components/nodes/LLMNode'
+import ToolNode      from '@/components/nodes/ToolNode'
+import MemoryNode    from '@/components/nodes/MemoryNode'
+import DatabaseNode  from '@/components/nodes/DatabaseNode'
+import OutputNode    from '@/components/nodes/OutputNode'
+import ShapeNode     from '@/components/nodes/ShapeNode'
+import TextNode      from '@/components/nodes/TextNode'
+import DrawingNode   from '@/components/nodes/DrawingNode'
+import ArrowNode     from '@/components/nodes/ArrowNode'
 
 import NodePalette, { PALETTE_DRAG_MIME } from './NodePalette'
 import DrawingDock from './DrawingDock'
@@ -53,16 +54,17 @@ import {
 
 // Module-scope — new object on every render = infinite loop
 const NODE_TYPES: NodeTypes = {
-  input:   InputNode,
-  prompt:  PromptNode,
-  llm:     LLMNode,
-  tool:    ToolNode,
-  memory:  MemoryNode,
-  output:  OutputNode,
-  shape:   ShapeNode,
-  text:    TextNode,
-  drawing: DrawingNode,
-  arrow:   ArrowNode,
+  input:    InputNode,
+  prompt:   PromptNode,
+  llm:      LLMNode,
+  tool:     ToolNode,
+  memory:   MemoryNode,
+  database: DatabaseNode,
+  output:   OutputNode,
+  shape:    ShapeNode,
+  text:     TextNode,
+  drawing:  DrawingNode,
+  arrow:    ArrowNode,
 } as const
 
 const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
@@ -79,16 +81,17 @@ const PORT_COMPAT: Record<PortType, PortType[]> = {
 
 function nodeColor(data: NodeData): string {
   const colors: Record<string, string> = {
-    input:   '#6366f1',
-    prompt:  '#8b5cf6',
-    llm:     '#3b82f6',
-    tool:    '#f59e0b',
-    memory:  '#14b8a6',
-    output:  '#22c55e',
-    shape:   '#94a3b8',
-    text:    '#94a3b8',
-    drawing: '#94a3b8',
-    arrow:   '#94a3b8',
+    input:    '#6366f1',
+    prompt:   '#8b5cf6',
+    llm:      '#3b82f6',
+    tool:     '#f59e0b',
+    memory:   '#14b8a6',
+    database: '#22d3ee',
+    output:   '#22c55e',
+    shape:    '#94a3b8',
+    text:     '#94a3b8',
+    drawing:  '#94a3b8',
+    arrow:    '#94a3b8',
   }
   return colors[data.nodeType] ?? '#94a3b8'
 }
@@ -108,13 +111,14 @@ function nodeDisplayName(n: AgentNode): string {
 function nodeInfoText(n: AgentNode): string {
   const cfg = (n.data.config ?? {}) as Record<string, unknown>
   switch (n.data.nodeType) {
-    case 'llm':    return `LLM · ${cfg.model ?? '—'}`
-    case 'tool':   return `${cfg.method ?? 'GET'} · ${(cfg.url as string) || 'no url'}`
-    case 'prompt': return 'Prompt template'
-    case 'memory': return `Buffer · k=${cfg.k ?? 10}`
-    case 'input':  return `Input · ${cfg.inputType ?? 'text'}`
-    case 'output': return 'Output sink'
-    default:       return n.data.nodeType
+    case 'llm':      return `LLM · ${cfg.model ?? '—'}`
+    case 'tool':     return `${cfg.method ?? 'GET'} · ${(cfg.url as string) || 'no url'}`
+    case 'prompt':   return 'Prompt template'
+    case 'memory':   return `Buffer · k=${cfg.k ?? 10}`
+    case 'database': return `DB · ${(cfg.driver as string) ?? 'postgres'} · ${(cfg.mode as string) ?? 'query'}`
+    case 'input':    return `Input · ${cfg.inputType ?? 'text'}`
+    case 'output':   return 'Output sink'
+    default:         return n.data.nodeType
   }
 }
 
