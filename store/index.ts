@@ -15,14 +15,14 @@ import type { TokenUsage, ToolRunSnapshot } from '@/lib/types'
 // ─── Port & Node types ────────────────────────────────────────────────────────
 
 export type PortType = 'messages' | 'string' | 'json' | 'any'
-export type AgentNodeKind = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'database' | 'output'
+export type AgentNodeKind = 'input' | 'prompt' | 'llm' | 'tool' | 'memory' | 'database' | 'embedding' | 'vector' | 'output'
 export type AnnotationKind = 'shape' | 'text' | 'drawing' | 'arrow'
 export type NodeKind  = AgentNodeKind | AnnotationKind
 export type RunStatus = 'idle' | 'running' | 'done' | 'error'
 
 export type DrawingTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'text' | 'arrow'
 
-export const AGENT_NODE_KINDS: readonly AgentNodeKind[] = ['input', 'prompt', 'llm', 'tool', 'memory', 'database', 'output'] as const
+export const AGENT_NODE_KINDS: readonly AgentNodeKind[] = ['input', 'prompt', 'llm', 'tool', 'memory', 'database', 'embedding', 'vector', 'output'] as const
 
 export function isAnnotationKind(k: string | undefined): k is AnnotationKind {
   return k === 'shape' || k === 'text' || k === 'drawing' || k === 'arrow'
@@ -58,6 +58,11 @@ export interface RunMeta {
   command?:    string   // SQL command verb (SELECT | INSERT | …)
   truncated?:  boolean  // result set was clipped to rowLimit
   errorMsg?:   string   // generic error message (DB and similar)
+  // Embedding / Vector node fields
+  vectorCount?: number  // number of vectors written or returned
+  dimensions?:  number  // embedding dimensions
+  topK?:        number  // retriever top-k actually used
+  mode?:        string  // vector op: 'index' | 'query' | embedding mode label
 }
 
 export interface NodeData {
@@ -82,6 +87,8 @@ interface State {
   // graph
   nodes:          AgentNode[]
   edges:          AgentEdge[]
+  // flow
+  flowId:         string | null
   // run
   runId:          string | null
   // ui
@@ -99,6 +106,8 @@ interface Actions {
   addNode:        (node: AgentNode) => void
   updateNodeData: (id: string, partial: Partial<NodeData>) => void
   loadGraph:      (nodes: AgentNode[], edges: AgentEdge[]) => void
+  // flow
+  setFlowId:      (id: string | null) => void
   // run
   setRunId:          (id: string | null) => void
   setRunStatus:      (nodeId: string, status: RunStatus, output?: string, meta?: RunMeta) => void
@@ -120,6 +129,7 @@ export const useStore = create<State & Actions>()((set) => ({
   // ── initial state ──────────────────────────────────────────────────────────
   nodes:          [],
   edges:          [],
+  flowId:         null,
   runId:          null,
   selectedNodeId: null,
   sidebarOpen:    false,
@@ -153,6 +163,9 @@ export const useStore = create<State & Actions>()((set) => ({
     })),
 
   loadGraph: (nodes, edges) => set({ nodes, edges }),
+
+  // ── flow actions ───────────────────────────────────────────────────────────
+  setFlowId: (id) => set({ flowId: id }),
 
   // ── run actions ────────────────────────────────────────────────────────────
   setRunId: (id) => set({ runId: id }),

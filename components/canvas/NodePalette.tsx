@@ -99,6 +99,38 @@ const PALETTE: PaletteItem[] = [
     ),
   },
   {
+    kind: 'embedding',
+    label: 'Embedding',
+    dot:   'bg-fuchsia-400',
+    hover: 'group-hover:border-fuchsia-400/40 group-hover:bg-fuchsia-400/5',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" className={ICON_CLS}>
+        <circle cx="6"  cy="6"  r="1.6" />
+        <circle cx="12" cy="4"  r="1.6" />
+        <circle cx="18" cy="7"  r="1.6" />
+        <circle cx="5"  cy="13" r="1.6" />
+        <circle cx="13" cy="12" r="1.6" />
+        <circle cx="19" cy="15" r="1.6" />
+        <circle cx="8"  cy="20" r="1.6" />
+        <circle cx="16" cy="20" r="1.6" />
+      </svg>
+    ),
+  },
+  {
+    kind: 'vector',
+    label: 'Vector',
+    dot:   'bg-violet-400',
+    hover: 'group-hover:border-violet-400/40 group-hover:bg-violet-400/5',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" className={ICON_CLS}>
+        <rect x="3"  y="4" width="4" height="16" rx="1" />
+        <rect x="10" y="4" width="4" height="16" rx="1" />
+        <rect x="17" y="4" width="4" height="16" rx="1" />
+        <path d="M3 9h18M3 15h18" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     kind: 'output',
     label: 'Output',
     dot:   'bg-green-400',

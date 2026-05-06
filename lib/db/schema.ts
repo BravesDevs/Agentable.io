@@ -158,10 +158,55 @@ export const apiKeys = pgTable(
   (t) => [uniqueIndex('api_keys_user_provider_idx').on(t.userId, t.provider)],
 )
 
+// ─── Vector stores ────────────────────────────────────────────────────────────
+// One row per VectorNode on a flow. Holds the model + index hyperparams the
+// node was configured with so the runtime can recreate query behaviour later.
+// Embeddings themselves live in `embeddings`, FK'd by `storeId`.
+
+export const vectorStores = pgTable(
+  'vector_stores',
+  {
+    id:         uuid('id').primaryKey().defaultRandom(),
+    flowId:     uuid('flow_id').references(() => flows.id, { onDelete: 'cascade' }).notNull(),
+    nodeId:     text('node_id').notNull(),               // canvas node id
+    name:       text('name').notNull().default('default'),
+    provider:   text('provider').notNull(),              // openai | google | …
+    model:      text('model').notNull(),                 // e.g. text-embedding-3-small
+    dimensions: integer('dimensions').notNull(),
+    indexType:  text('index_type').notNull().default('flat'),  // flat | hnsw | ivfflat
+    metric:     text('metric').notNull().default('cosine'),    // cosine | l2 | dot
+    config:     jsonb('config').notNull().default({}),         // hyperparams (topK, topP, …)
+    createdAt:  timestamp('created_at').notNull().defaultNow(),
+    updatedAt:  timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex('vector_stores_flow_node_idx').on(t.flowId, t.nodeId)],
+)
+
+// ─── Embeddings ───────────────────────────────────────────────────────────────
+// Vector + chunk content. `embedding` is a portable jsonb number[] so the table
+// works without the pgvector extension; the service layer scores in-process.
+// When pgvector is enabled the column can be migrated to vector(d) without a
+// data shape change.
+
+export const embeddings = pgTable('embeddings', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  storeId:    uuid('store_id').references(() => vectorStores.id, { onDelete: 'cascade' }).notNull(),
+  flowId:     uuid('flow_id').references(() => flows.id, { onDelete: 'cascade' }).notNull(),
+  chunkIndex: integer('chunk_index').notNull().default(0),
+  content:    text('content').notNull(),
+  embedding:  jsonb('embedding').notNull(),              // number[]
+  metadata:   jsonb('metadata').notNull().default({}),   // { source, page, … }
+  createdAt:  timestamp('created_at').notNull().defaultNow(),
+})
+
 // ─── Inferred row types ───────────────────────────────────────────────────────
 
-export type User       = typeof users.$inferSelect
-export type NewUser    = typeof users.$inferInsert
-export type Profile    = typeof profiles.$inferSelect
-export type NewProfile = typeof profiles.$inferInsert
-export type ApiKey     = typeof apiKeys.$inferSelect
+export type User         = typeof users.$inferSelect
+export type NewUser      = typeof users.$inferInsert
+export type Profile      = typeof profiles.$inferSelect
+export type NewProfile   = typeof profiles.$inferInsert
+export type ApiKey       = typeof apiKeys.$inferSelect
+export type VectorStore  = typeof vectorStores.$inferSelect
+export type NewVectorStore = typeof vectorStores.$inferInsert
+export type Embedding    = typeof embeddings.$inferSelect
+export type NewEmbedding = typeof embeddings.$inferInsert

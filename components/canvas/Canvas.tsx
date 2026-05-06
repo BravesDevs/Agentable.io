@@ -39,6 +39,8 @@ import LLMNode       from '@/components/nodes/LLMNode'
 import ToolNode      from '@/components/nodes/ToolNode'
 import MemoryNode    from '@/components/nodes/MemoryNode'
 import DatabaseNode  from '@/components/nodes/DatabaseNode'
+import EmbeddingNode from '@/components/nodes/EmbeddingNode'
+import VectorNode    from '@/components/nodes/VectorNode'
 import OutputNode    from '@/components/nodes/OutputNode'
 import ShapeNode     from '@/components/nodes/ShapeNode'
 import TextNode      from '@/components/nodes/TextNode'
@@ -54,17 +56,19 @@ import {
 
 // Module-scope — new object on every render = infinite loop
 const NODE_TYPES: NodeTypes = {
-  input:    InputNode,
-  prompt:   PromptNode,
-  llm:      LLMNode,
-  tool:     ToolNode,
-  memory:   MemoryNode,
-  database: DatabaseNode,
-  output:   OutputNode,
-  shape:    ShapeNode,
-  text:     TextNode,
-  drawing:  DrawingNode,
-  arrow:    ArrowNode,
+  input:     InputNode,
+  prompt:    PromptNode,
+  llm:       LLMNode,
+  tool:      ToolNode,
+  memory:    MemoryNode,
+  database:  DatabaseNode,
+  embedding: EmbeddingNode,
+  vector:    VectorNode,
+  output:    OutputNode,
+  shape:     ShapeNode,
+  text:      TextNode,
+  drawing:   DrawingNode,
+  arrow:     ArrowNode,
 } as const
 
 const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
@@ -81,13 +85,15 @@ const PORT_COMPAT: Record<PortType, PortType[]> = {
 
 function nodeColor(data: NodeData): string {
   const colors: Record<string, string> = {
-    input:    '#6366f1',
-    prompt:   '#8b5cf6',
-    llm:      '#3b82f6',
-    tool:     '#f59e0b',
-    memory:   '#14b8a6',
-    database: '#22d3ee',
-    output:   '#22c55e',
+    input:     '#6366f1',
+    prompt:    '#8b5cf6',
+    llm:       '#3b82f6',
+    tool:      '#f59e0b',
+    memory:    '#14b8a6',
+    database:  '#22d3ee',
+    embedding: '#e879f9',
+    vector:    '#a78bfa',
+    output:    '#22c55e',
     shape:    '#94a3b8',
     text:     '#94a3b8',
     drawing:  '#94a3b8',
@@ -115,9 +121,11 @@ function nodeInfoText(n: AgentNode): string {
     case 'tool':     return `${cfg.method ?? 'GET'} · ${(cfg.url as string) || 'no url'}`
     case 'prompt':   return 'Prompt template'
     case 'memory':   return `Buffer · k=${cfg.k ?? 10}`
-    case 'database': return `DB · ${(cfg.driver as string) ?? 'postgres'} · ${(cfg.mode as string) ?? 'query'}`
-    case 'input':    return `Input · ${cfg.inputType ?? 'text'}`
-    case 'output':   return 'Output sink'
+    case 'database':  return `DB · ${(cfg.driver as string) ?? 'postgres'} · ${(cfg.mode as string) ?? 'query'}`
+    case 'embedding': return `Embed · ${(cfg.provider as string) ?? 'openai'} · ${(cfg.model as string) ?? 'text-embedding-3-small'}`
+    case 'vector':    return `Vector · ${(cfg.indexType as string) ?? 'flat'} · top_k=${(cfg.topK as number) ?? 5}`
+    case 'input':     return `Input · ${cfg.inputType ?? 'text'}`
+    case 'output':    return 'Output sink'
     default:         return n.data.nodeType
   }
 }
