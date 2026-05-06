@@ -20,10 +20,16 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { name } = await request.json() as { name?: string }
+  const { name, json } = await request.json() as {
+    name?: string
+    json?: { nodes: unknown[]; edges: unknown[] }
+  }
   const [flow] = await db
     .insert(flows)
-    .values({ name: name ?? 'Untitled flow', json: { nodes: [], edges: [] } })
+    .values({
+      name: name ?? 'Untitled flow',
+      json: json ?? { nodes: [], edges: [] },
+    })
     .returning()
   return Response.json(flow, { status: 201 })
 }

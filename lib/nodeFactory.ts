@@ -15,22 +15,42 @@ const AGENT_DEFAULTS: Record<AgentNodeKind, Record<string, unknown>> = {
     forwardSchema:    true,
     forwardRows:      true,
   },
+  embedding: {
+    provider:   'openai',
+    model:      'text-embedding-3-small',
+    dimensions: 1536,
+    chunkSize:  512,
+    chunkOverlap: 64,
+    sourceField: 'auto',     // 'auto' | 'output' | 'dbRows' | custom field name
+  },
+  vector: {
+    storeName:  'default',
+    indexType:  'flat',      // flat | hnsw | ivfflat
+    metric:     'cosine',    // cosine | l2 | dot
+    mode:       'auto',      // 'auto' (index when chunks provided, else query) | 'index' | 'query'
+    topK:       5,
+    topP:       0.0,         // similarity threshold (0 = disabled)
+    injectInto: 'context',   // 'context' | 'messages' | 'output'
+  },
   output:   {},
 }
 
 const PORT_MAP: Record<AgentNodeKind, { inputs: AgentNode['data']['inputs']; outputs: AgentNode['data']['outputs'] }> = {
-  input:    { inputs: [],                                                outputs: [{ id: 'text-out',    type: 'string'   }] },
-  prompt:   { inputs: [{ id: 'vars-in',     type: 'any' }],             outputs: [{ id: 'text-out',    type: 'string'   }] },
-  llm:      { inputs: [{ id: 'messages-in', type: 'messages' }, { id: 'system-in', type: 'string' }], outputs: [{ id: 'messages-out', type: 'messages' }, { id: 'text-out', type: 'string' }] },
-  tool:     { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
-  memory:   { inputs: [{ id: 'messages-in', type: 'messages' }],        outputs: [{ id: 'messages-out',type: 'messages' }] },
-  database: { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
-  output:   { inputs: [{ id: 'text-in',     type: 'string'   }],        outputs: []                                       },
+  input:     { inputs: [],                                                outputs: [{ id: 'text-out',    type: 'string'   }] },
+  prompt:    { inputs: [{ id: 'vars-in',     type: 'any' }],             outputs: [{ id: 'text-out',    type: 'string'   }] },
+  llm:       { inputs: [{ id: 'messages-in', type: 'messages' }, { id: 'system-in', type: 'string' }], outputs: [{ id: 'messages-out', type: 'messages' }, { id: 'text-out', type: 'string' }] },
+  tool:      { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
+  memory:    { inputs: [{ id: 'messages-in', type: 'messages' }],        outputs: [{ id: 'messages-out',type: 'messages' }] },
+  database:  { inputs: [{ id: 'trigger-in',  type: 'any' }],             outputs: [{ id: 'json-out',    type: 'json'     }] },
+  embedding: { inputs: [{ id: 'source-in',   type: 'any' }],             outputs: [{ id: 'vectors-out', type: 'json'     }] },
+  vector:    { inputs: [{ id: 'vectors-in',  type: 'any' }],             outputs: [{ id: 'context-out', type: 'string'   }, { id: 'json-out', type: 'json' }] },
+  output:    { inputs: [{ id: 'text-in',     type: 'string'   }],        outputs: []                                       },
 }
 
 const AGENT_LABELS: Record<AgentNodeKind, string> = {
   input: '+ Input', prompt: '+ Prompt', llm: '+ LLM',
-  tool: '+ Tool', memory: '+ Memory', database: '+ Database', output: '+ Output',
+  tool: '+ Tool', memory: '+ Memory', database: '+ Database',
+  embedding: '+ Embedding', vector: '+ Vector', output: '+ Output',
 }
 
 export const AGENT_NODE_LABELS = AGENT_LABELS

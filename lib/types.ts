@@ -4,7 +4,8 @@ import type { DBRunSnapshot, DBSchema, DBQueryResult } from '@/types/db'
 
 export type NodeType =
   | 'input' | 'prompt' | 'llm' | 'tool'
-  | 'memory' | 'mcp' | 'rag' | 'guardrail' | 'database' | 'output'
+  | 'memory' | 'mcp' | 'rag' | 'guardrail' | 'database'
+  | 'embedding' | 'vector' | 'output'
 
 export interface GraphNode {
   id: string
@@ -124,16 +125,41 @@ export interface TokenUsage {
   firstTokenMs?:    number   // ms from LLM request start to first token
 }
 
+export interface EmbeddingChunk {
+  content:   string
+  embedding: number[]
+  metadata?: Record<string, unknown>
+}
+
+export interface EmbeddingPayload {
+  provider:   string
+  model:      string
+  dimensions: number
+  chunks:     EmbeddingChunk[]
+  /** Last embedded query, when produced for retrieval rather than indexing. */
+  query?:     { text: string; embedding: number[] }
+}
+
+export interface RagContext {
+  storeName: string
+  hits:      Array<{ content: string; score: number; metadata: Record<string, unknown> }>
+}
+
 export interface NodeContext {
   input?:    string
   output?:   string
   messages?: ModelMessage[]
   fileData?: FileData
   usage?:    TokenUsage
+  // Run scope — set by execute() so handlers can persist per-flow state
+  flowId?:   string
   // Database-node propagated state for downstream nodes
   dbSchema?: DBSchema
   dbRows?:   DBQueryResult['rows']
   db?:       DBRunSnapshot
+  // Embedding / vector pipeline state
+  embeddings?: EmbeddingPayload
+  rag?:        RagContext
   [key: string]: unknown
 }
 

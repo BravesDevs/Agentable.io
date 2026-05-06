@@ -24,7 +24,7 @@ import {
 import { useStore, type AgentNodeKind, type RunHistoryEntry } from '@/store'
 import { useSessionKeys } from '@/store/sessionKeys'
 import type { DBColumn, DBDriver, DBMode, DBSchema, DBTable, ToolRunSnapshot } from '@/lib/types'
-import type { ProviderId, ProviderModel } from '@/lib/providers/registry'
+import { isProviderId, type ProviderId, type ProviderModel } from '@/lib/providers/registry'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
 
@@ -136,13 +136,15 @@ const MONACO_OPTIONS_PROMPT = {
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const NODE_META: Record<AgentNodeKind, { label: string; color: string; dot: string }> = {
-  input:    { label: 'Input Node',    color: 'text-indigo-400', dot: 'bg-indigo-400' },
-  prompt:   { label: 'Prompt Node',   color: 'text-purple-400', dot: 'bg-purple-400' },
-  llm:      { label: 'LLM Node',      color: 'text-blue-400',   dot: 'bg-blue-400'   },
-  tool:     { label: 'Tool Node',     color: 'text-amber-400',  dot: 'bg-amber-400'  },
-  memory:   { label: 'Memory Node',   color: 'text-teal-400',   dot: 'bg-teal-400'   },
-  database: { label: 'Database Node', color: 'text-cyan-400',   dot: 'bg-cyan-400'   },
-  output:   { label: 'Output Node',   color: 'text-green-400',  dot: 'bg-green-400'  },
+  input:     { label: 'Input Node',     color: 'text-indigo-400',  dot: 'bg-indigo-400'  },
+  prompt:    { label: 'Prompt Node',    color: 'text-purple-400',  dot: 'bg-purple-400'  },
+  llm:       { label: 'LLM Node',       color: 'text-blue-400',    dot: 'bg-blue-400'    },
+  tool:      { label: 'Tool Node',      color: 'text-amber-400',   dot: 'bg-amber-400'   },
+  memory:    { label: 'Memory Node',    color: 'text-teal-400',    dot: 'bg-teal-400'    },
+  database:  { label: 'Database Node',  color: 'text-cyan-400',    dot: 'bg-cyan-400'    },
+  embedding: { label: 'Embedding Node', color: 'text-fuchsia-400', dot: 'bg-fuchsia-400' },
+  vector:    { label: 'Vector Node',    color: 'text-violet-400',  dot: 'bg-violet-400'  },
+  output:    { label: 'Output Node',    color: 'text-green-400',   dot: 'bg-green-400'   },
 }
 
 // ─── Reusable field row ───────────────────────────────────────────────────────
@@ -2418,6 +2420,687 @@ function OutputHistory({ history }: { history: RunHistoryEntry[] }) {
   )
 }
 
+// ─── Provider key block (reusable) ───────────────────────────────────────────
+// Same UX as the LLM form's key block — session vs DB persistence, validation
+// via /api/v1/keys. Self-contained so any provider-bound node can drop it in.
+
+type PersistMode = 'session' | 'db'
+
+interface ProviderKeyBlockProps {
+  provider:    ProviderId
+  label?:      string
+  accent?:     'blue' | 'fuchsia' | 'violet'
+}
+
+const KEY_ACCENTS = {
+  blue:    { ring: 'focus-visible:ring-blue-500/30',    btn: 'bg-blue-500/20    hover:bg-blue-500/30    text-blue-300    border-blue-500/30    hover:border-blue-400/50',    pill: 'bg-blue-500/15    text-blue-300    border-blue-500/25',    tab: 'bg-blue-500/20    text-blue-300'    },
+  fuchsia: { ring: 'focus-visible:ring-fuchsia-500/30', btn: 'bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-300 border-fuchsia-500/30 hover:border-fuchsia-400/50', pill: 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/25', tab: 'bg-fuchsia-500/20 text-fuchsia-300' },
+  violet:  { ring: 'focus-visible:ring-violet-500/30',  btn: 'bg-violet-500/20  hover:bg-violet-500/30  text-violet-300  border-violet-500/30  hover:border-violet-400/50',  pill: 'bg-violet-500/15  text-violet-300  border-violet-500/25',  tab: 'bg-violet-500/20  text-violet-300'  },
+} as const
+
+function ProviderKeyBlock({ provider, label, accent = 'blue' }: ProviderKeyBlockProps) {
+  const setSessionKey   = useSessionKeys((s) => s.setKey)
+  const clearSessionKey = useSessionKeys((s) => s.clearKey)
+  const sessionKeyMap   = useSessionKeys((s) => s.keys)
+
+  const [persistedProviders, setPersistedProviders] = useState<ProviderId[]>([])
+  const refreshPersisted = useCallback(() => {
+    fetch('/api/v1/keys')
+      .then((r) => r.json())
+      .then((data: { keys: { provider: ProviderId }[] }) => {
+        setPersistedProviders(data.keys.map((k) => k.provider))
+      })
+      .catch(() => {})
+  }, [])
+  useEffect(() => { refreshPersisted() }, [refreshPersisted])
+
+  const hasSessionKey   = Boolean(sessionKeyMap[provider])
+  const hasPersistedKey = persistedProviders.includes(provider)
+
+  const [keyInput,    setKeyInput]    = useState('')
+  const [persistMode, setPersistMode] = useState<PersistMode>('session')
+  const [keyStatus,   setKeyStatus]   = useState<{ kind: 'idle' | 'validating' | 'ok' | 'error'; message?: string }>({ kind: 'idle' })
+
+  // Reset input when switching providers
+  useEffect(() => { setKeyInput(''); setKeyStatus({ kind: 'idle' }) }, [provider])
+
+  async function handleSaveKey() {
+    const trimmed = keyInput.trim()
+    if (trimmed.length < 8) {
+      setKeyStatus({ kind: 'error', message: 'Key looks too short' })
+      return
+    }
+    setKeyStatus({ kind: 'validating' })
+    try {
+      const res = await fetch('/api/v1/keys', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ provider, apiKey: trimmed, persist: persistMode }),
+      })
+      const data = await res.json().catch(() => ({})) as { error?: string; ok?: boolean }
+      if (!res.ok || !data.ok) {
+        setKeyStatus({ kind: 'error', message: data.error ?? 'Validation failed' })
+        return
+      }
+      if (persistMode === 'session') {
+        setSessionKey(provider, trimmed)
+      } else {
+        clearSessionKey(provider)
+        refreshPersisted()
+      }
+      setKeyInput('')
+      setKeyStatus({ kind: 'ok', message: persistMode === 'db' ? 'Saved & encrypted' : 'Active for this session' })
+    } catch (err) {
+      setKeyStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  async function handleClearKey() {
+    clearSessionKey(provider)
+    if (hasPersistedKey) {
+      await fetch(`/api/v1/keys/${provider}`, { method: 'DELETE' }).catch(() => {})
+      refreshPersisted()
+    }
+    setKeyStatus({ kind: 'idle' })
+  }
+
+  const a = KEY_ACCENTS[accent]
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/2 overflow-hidden">
+      <div className="flex items-center justify-between px-3.5 py-3">
+        <div className="space-y-0.5">
+          <p className="text-[11px] font-semibold text-white/70">
+            {label ?? provider} API Key
+          </p>
+          <p className="text-[10px] text-white/30">
+            {hasSessionKey   && 'Active for this session'}
+            {!hasSessionKey  && hasPersistedKey && 'Saved in database (encrypted)'}
+            {!hasSessionKey  && !hasPersistedKey && 'No key configured — runs will fail'}
+          </p>
+        </div>
+        {(hasSessionKey || hasPersistedKey) && (
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+            hasPersistedKey
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25'
+              : a.pill
+          }`}>
+            {hasPersistedKey ? 'DB' : 'Session'}
+          </span>
+        )}
+      </div>
+
+      <div className="border-t border-white/8 px-3.5 py-3 space-y-2.5">
+        <Input
+          type="password"
+          value={keyInput}
+          onChange={(e) => setKeyInput(e.target.value)}
+          placeholder={hasSessionKey || hasPersistedKey ? '•••• replace key' : 'sk-…'}
+          className={`bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 font-mono text-xs h-9 ${a.ring}`}
+        />
+
+        <div className="flex items-center gap-1 rounded-md border border-white/10 bg-[#1a1a1e] p-0.5">
+          {(['session', 'db'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setPersistMode(mode)}
+              className={`flex-1 text-[10px] font-mono px-2 py-1 rounded transition-colors ${
+                persistMode === mode ? a.tab : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              {mode === 'session' ? 'This session' : 'Save to DB'}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={!keyInput.trim() || keyStatus.kind === 'validating'}
+            onClick={handleSaveKey}
+            className={`flex-1 border ${a.btn} disabled:opacity-40`}
+          >
+            {keyStatus.kind === 'validating' ? 'Validating…' : 'Validate & save'}
+          </Button>
+          {(hasSessionKey || hasPersistedKey) && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleClearKey}
+              className="text-white/40 hover:text-red-300 hover:bg-red-500/10"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {keyStatus.message && (
+          <p className={`text-[10px] font-mono ${
+            keyStatus.kind === 'error' ? 'text-red-400' :
+            keyStatus.kind === 'ok'    ? 'text-emerald-400' : 'text-white/40'
+          }`}>
+            {keyStatus.message}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Embedding form ──────────────────────────────────────────────────────────
+// Source → chunker → embedding model. The "Source" dropdown drives which slot
+// of the upstream context the handler reads from (auto / output / dbRows / …).
+
+const EMBEDDING_PROVIDERS: { value: 'openai' | 'google' | 'openrouter'; label: string }[] = [
+  { value: 'openai',     label: 'OpenAI'     },
+  { value: 'google',     label: 'Google'     },
+  { value: 'openrouter', label: 'OpenRouter' },
+]
+
+const EMBEDDING_MODELS: Record<string, { id: string; label: string; dims: number }[]> = {
+  openai: [
+    { id: 'text-embedding-3-small', label: 'text-embedding-3-small', dims: 1536 },
+    { id: 'text-embedding-3-large', label: 'text-embedding-3-large', dims: 3072 },
+    { id: 'text-embedding-ada-002', label: 'ada-002 (legacy)',       dims: 1536 },
+  ],
+  google: [
+    { id: 'text-embedding-004', label: 'text-embedding-004', dims: 768 },
+  ],
+  openrouter: [
+    { id: 'openai/text-embedding-3-small', label: 'OpenAI 3-small (via OR)', dims: 1536 },
+  ],
+}
+
+const EMBEDDING_SOURCES = [
+  { value: 'auto',    label: 'Auto',         description: 'DB rows → upstream output → input' },
+  { value: 'output',  label: 'Output',       description: 'Upstream node output' },
+  { value: 'input',   label: 'User input',   description: 'Original user input' },
+  { value: 'dbRows',  label: 'Database rows', description: 'Forwarded DB query rows' },
+] as const
+
+function EmbeddingForm({
+  config,
+  onSave,
+}: {
+  config: Record<string, unknown>
+  onSave: (v: Record<string, unknown>) => void
+}) {
+  const [provider, setProvider]         = useState<string>((config.provider as string) ?? 'openai')
+  const [model,    setModel]            = useState<string>((config.model    as string) ?? 'text-embedding-3-small')
+  const [dimensions, setDimensions]     = useState<number>((config.dimensions   as number) ?? 1536)
+  const [chunkSize,  setChunkSize]      = useState<number>((config.chunkSize    as number) ?? 512)
+  const [chunkOverlap, setChunkOverlap] = useState<number>((config.chunkOverlap as number) ?? 64)
+  const [sourceField, setSourceField]   = useState<string>((config.sourceField  as string) ?? 'auto')
+
+  const models = EMBEDDING_MODELS[provider] ?? []
+
+  // When provider changes, snap to the first model + its dimensions
+  useEffect(() => {
+    if (models.length === 0) return
+    if (!models.some((m) => m.id === model)) {
+      setModel(models[0].id)
+      setDimensions(models[0].dims)
+    }
+  }, [provider, models, model])
+
+  function selectModel(id: string) {
+    setModel(id)
+    const m = models.find((x) => x.id === id)
+    if (m) setDimensions(m.dims)
+  }
+
+  function handleSave() {
+    onSave({ provider, model, dimensions, chunkSize, chunkOverlap, sourceField })
+  }
+
+  return (
+    <div className="space-y-5">
+      <FieldRow label="Source">
+        <Select value={sourceField} onValueChange={setSourceField}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-fuchsia-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {EMBEDDING_SOURCES.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                <span className="font-medium">{s.label}</span>
+                <span className="ml-2 text-white/35 text-[11px]">{s.description}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      <FieldRow label="Provider">
+        <Select value={provider} onValueChange={setProvider}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-fuchsia-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {EMBEDDING_PROVIDERS.map((p) => (
+              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      <FieldRow label="Model" hint={`${dimensions}d`}>
+        <Select value={model} onValueChange={selectModel}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-fuchsia-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {models.map((m) => (
+              <SelectItem key={m.id} value={m.id}>
+                <span className="font-medium">{m.label}</span>
+                <span className="ml-2 text-white/35 text-[11px] font-mono">{m.dims}d</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      {isProviderId(provider) && (
+        <ProviderKeyBlock
+          provider={provider}
+          label={EMBEDDING_PROVIDERS.find((p) => p.value === provider)?.label}
+          accent="fuchsia"
+        />
+      )}
+
+      <FieldRow label="Chunk Size" hint={`${chunkSize} tokens`}>
+        <Slider
+          min={64} max={2048} step={32}
+          value={[chunkSize]}
+          onValueChange={([v]) => setChunkSize(v)}
+          className="[&_[role=slider]]:bg-fuchsia-400 [&_[role=slider]]:border-fuchsia-400 [&_.bg-primary]:bg-fuchsia-400"
+        />
+      </FieldRow>
+
+      <FieldRow label="Chunk Overlap" hint={`${chunkOverlap} tokens`}>
+        <Slider
+          min={0} max={Math.max(0, chunkSize - 16)} step={8}
+          value={[chunkOverlap]}
+          onValueChange={([v]) => setChunkOverlap(v)}
+          className="[&_[role=slider]]:bg-fuchsia-400 [&_[role=slider]]:border-fuchsia-400 [&_.bg-primary]:bg-fuchsia-400"
+        />
+      </FieldRow>
+
+      <p className="text-[11px] text-white/30">
+        API key for the selected provider is read from the LLM node config or your saved keys.
+        Anthropic does not currently expose embedding models.
+      </p>
+
+      <Button
+        size="sm"
+        className="w-full bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-300 border border-fuchsia-500/30 hover:border-fuchsia-400/50"
+        onClick={handleSave}
+      >
+        Apply
+      </Button>
+    </div>
+  )
+}
+
+// ─── Vector form ─────────────────────────────────────────────────────────────
+// Index/query mode + retriever tuning. Persists per (flowId, nodeId) once
+// embeddings are written by the runtime.
+
+const VECTOR_MODES = [
+  { value: 'auto',  label: 'Auto',  description: 'Index when chunks arrive, query otherwise' },
+  { value: 'index', label: 'Index', description: 'Always upsert into the store' },
+  { value: 'query', label: 'Query', description: 'Always retrieve top-K' },
+] as const
+
+const INDEX_TYPES = [
+  { value: 'flat',    label: 'Flat (exact)',     description: 'Brute-force; best recall'    },
+  { value: 'hnsw',    label: 'HNSW',             description: 'Fast ANN, higher RAM'        },
+  { value: 'ivfflat', label: 'IVFFlat',          description: 'Cluster-based, lower recall' },
+] as const
+
+const METRICS = [
+  { value: 'cosine', label: 'Cosine'  },
+  { value: 'dot',    label: 'Dot'     },
+  { value: 'l2',     label: 'L2'      },
+] as const
+
+const INJECT_TARGETS = [
+  { value: 'context',  label: 'Context (prompt)', description: 'Prepend retrieved text + question' },
+  { value: 'messages', label: 'System message',   description: 'Inject as system; pass user through' },
+  { value: 'output',   label: 'Raw output',       description: 'Replace output with hits only' },
+] as const
+
+interface VectorRowView {
+  id:         string
+  chunkIndex: number
+  content:    string
+  preview:    number[]
+  dims:       number
+  metadata:   Record<string, unknown>
+  createdAt:  string
+}
+
+interface VectorStoreView {
+  id:         string
+  name:       string
+  provider:   string
+  model:      string
+  dimensions: number
+  indexType:  string
+  metric:     string
+  createdAt:  string
+}
+
+interface VectorSchemaCol {
+  column: string
+  type:   string
+  note:   string
+}
+
+interface VectorListResponse {
+  schema: VectorSchemaCol[]
+  store:  VectorStoreView | null
+  rows:   VectorRowView[]
+  total:  number
+  limit?: number
+  error?: string
+}
+
+function StoredVectorsViewer({ flowId, nodeId }: { flowId: string | null; nodeId: string | null }) {
+  const [data,    setData]    = useState<VectorListResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+  const [open,    setOpen]    = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!flowId || !nodeId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/v1/vectors?flowId=${encodeURIComponent(flowId)}&nodeId=${encodeURIComponent(nodeId)}&limit=200`)
+      const json = await res.json() as VectorListResponse
+      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`)
+      setData(json)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [flowId, nodeId])
+
+  useEffect(() => { load() }, [load])
+
+  const schema = data?.schema ?? []
+  const rows   = data?.rows ?? []
+  const store  = data?.store ?? null
+
+  return (
+    <div className="pt-2 border-t border-white/8 space-y-4">
+      {/* Header */}
+      <div className="flex items-baseline justify-between">
+        <span className="text-[10px] font-semibold tracking-widest text-white/40 uppercase">Stored Vectors</span>
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading || !flowId || !nodeId}
+          className="text-[10px] font-mono text-white/40 hover:text-white/80 disabled:opacity-30"
+        >
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+
+      {/* Schema */}
+      <div className="rounded-xl border border-white/8 bg-white/2 overflow-hidden">
+        <div className="px-3 py-2 border-b border-white/8 flex items-center justify-between">
+          <span className="text-[10px] font-mono text-white/50">embeddings</span>
+          <span className="text-[9px] font-mono text-white/25 uppercase tracking-wider">schema</span>
+        </div>
+        <div className="px-3 py-2 space-y-1">
+          {schema.map((c) => (
+            <div key={c.column} className="flex items-baseline gap-2 text-[10px] font-mono">
+              <span className="text-violet-300/80 w-24 truncate">{c.column}</span>
+              <span className="text-white/40 w-16 truncate">{c.type}</span>
+              <span className="text-white/25 truncate flex-1">{c.note}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Store metadata */}
+      {store && (
+        <div className="rounded-xl border border-white/8 bg-white/2 px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono text-white/50">{store.name}</span>
+            <span className="text-[9px] font-mono text-violet-300 bg-violet-500/15 border border-violet-500/25 rounded px-1.5 py-0.5">
+              {store.indexType.toUpperCase()} · {store.metric}
+            </span>
+          </div>
+          <div className="text-[10px] font-mono text-white/40 truncate">
+            {store.provider} · {store.model} · <span className="text-white/60">{store.dimensions}d</span>
+          </div>
+        </div>
+      )}
+
+      {/* Status */}
+      {error && (
+        <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[10px] font-mono text-red-400/80 break-words">
+          {error}
+        </div>
+      )}
+      {!flowId && (
+        <p className="text-[11px] text-white/30">Save the flow before viewing stored vectors.</p>
+      )}
+
+      {/* Rows */}
+      {rows.length === 0 && !loading && !error && flowId && (
+        <div className="flex flex-col items-center justify-center h-24 gap-1.5 rounded-xl border border-dashed border-white/8">
+          <span className="text-[11px] text-white/30">No vectors stored yet.</span>
+          <span className="text-[10px] text-white/20">Run the flow with Mode = index.</span>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] font-mono text-white/30">{rows.length} row{rows.length === 1 ? '' : 's'}</span>
+            <span className="text-[10px] font-mono text-white/20">first {rows[0]?.preview.length ?? 0} dims shown</span>
+          </div>
+          {rows.map((r) => {
+            const isOpen = open === r.id
+            return (
+              <div key={r.id} className="rounded-xl border border-white/8 bg-[#131316] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setOpen(isOpen ? null : r.id)}
+                  className="w-full text-left px-3 py-2.5 hover:bg-white/2 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-mono text-violet-300/80">#{r.chunkIndex}</span>
+                    <span className="text-[10px] font-mono text-white/30">{r.dims}d</span>
+                  </div>
+                  <p className="text-[11px] text-white/55 font-mono leading-relaxed line-clamp-2 break-words">
+                    {r.content}
+                  </p>
+                  <div className="mt-1.5 text-[10px] font-mono text-white/30 truncate">
+                    [{r.preview.map((v) => v.toFixed(4)).join(', ')}{r.preview.length < r.dims ? ', …' : ''}]
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-white/8 px-3 py-2.5 space-y-2 bg-black/20">
+                    <div>
+                      <span className="text-[9px] font-mono text-white/30 uppercase tracking-wider">content</span>
+                      <pre className="mt-1 text-[11px] font-mono text-white/70 whitespace-pre-wrap break-words leading-relaxed max-h-40 overflow-auto">
+                        {r.content}
+                      </pre>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-white/30 uppercase tracking-wider">embedding (preview)</span>
+                      <pre className="mt-1 text-[10px] font-mono text-violet-300/70 break-words whitespace-pre-wrap">
+                        [{r.preview.map((v) => v.toFixed(6)).join(', ')}{r.preview.length < r.dims ? `, … ${r.dims - r.preview.length} more` : ''}]
+                      </pre>
+                    </div>
+                    {Object.keys(r.metadata ?? {}).length > 0 && (
+                      <div>
+                        <span className="text-[9px] font-mono text-white/30 uppercase tracking-wider">metadata</span>
+                        <pre className="mt-1 text-[10px] font-mono text-white/50 whitespace-pre-wrap break-words">
+                          {JSON.stringify(r.metadata, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    <div className="text-[9px] font-mono text-white/25">
+                      {new Date(r.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VectorForm({
+  config,
+  onSave,
+  flowId,
+  nodeId,
+}: {
+  config: Record<string, unknown>
+  onSave: (v: Record<string, unknown>) => void
+  flowId: string | null
+  nodeId: string | null
+}) {
+  const [storeName,  setStoreName]  = useState<string>((config.storeName  as string) ?? 'default')
+  const [mode,       setMode]       = useState<string>((config.mode       as string) ?? 'auto')
+  const [indexType,  setIndexType]  = useState<string>((config.indexType  as string) ?? 'flat')
+  const [metric,     setMetric]     = useState<string>((config.metric     as string) ?? 'cosine')
+  const [topK,       setTopK]       = useState<number>((config.topK       as number) ?? 5)
+  const [topP,       setTopP]       = useState<number>((config.topP       as number) ?? 0)
+  const [injectInto, setInjectInto] = useState<string>((config.injectInto as string) ?? 'context')
+  const [replace,    setReplace]    = useState<boolean>(Boolean(config.replace))
+
+  function handleSave() {
+    onSave({ storeName, mode, indexType, metric, topK, topP, injectInto, replace })
+  }
+
+  return (
+    <div className="space-y-5">
+      <FieldRow label="Store Name">
+        <Input
+          value={storeName}
+          onChange={(e) => setStoreName(e.target.value || 'default')}
+          placeholder="default"
+          className="bg-[#1a1a1e] border-white/10 text-white/80 placeholder:text-white/20 font-mono text-xs h-9 focus-visible:ring-violet-500/30"
+        />
+      </FieldRow>
+
+      <FieldRow label="Mode">
+        <Select value={mode} onValueChange={setMode}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-violet-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {VECTOR_MODES.map((m) => (
+              <SelectItem key={m.value} value={m.value}>
+                <span className="font-medium">{m.label}</span>
+                <span className="ml-2 text-white/35 text-[11px]">{m.description}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      <FieldRow label="Index Type">
+        <Select value={indexType} onValueChange={setIndexType}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-violet-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {INDEX_TYPES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                <span className="font-medium">{t.label}</span>
+                <span className="ml-2 text-white/35 text-[11px]">{t.description}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      <FieldRow label="Metric">
+        <Select value={metric} onValueChange={setMetric}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-violet-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {METRICS.map((m) => (
+              <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      <FieldRow label="top_k" hint={`${topK} hits`}>
+        <Slider
+          min={1} max={50} step={1}
+          value={[topK]}
+          onValueChange={([v]) => setTopK(v)}
+          className="[&_[role=slider]]:bg-violet-400 [&_[role=slider]]:border-violet-400 [&_.bg-primary]:bg-violet-400"
+        />
+      </FieldRow>
+
+      <FieldRow label="top_p (similarity floor)" hint={topP === 0 ? 'off' : topP.toFixed(2)}>
+        <Slider
+          min={0} max={1} step={0.01}
+          value={[topP]}
+          onValueChange={([v]) => setTopP(v)}
+          className="[&_[role=slider]]:bg-violet-400 [&_[role=slider]]:border-violet-400 [&_.bg-primary]:bg-violet-400"
+        />
+      </FieldRow>
+
+      <FieldRow label="Inject Into">
+        <Select value={injectInto} onValueChange={setInjectInto}>
+          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-violet-500/30 h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+            {INJECT_TARGETS.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                <span className="font-medium">{t.label}</span>
+                <span className="ml-2 text-white/35 text-[11px]">{t.description}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+
+      <label className="flex items-center justify-between gap-3 text-[11px] text-white/60 cursor-pointer">
+        <span>Replace existing vectors when indexing</span>
+        <input
+          type="checkbox"
+          checked={replace}
+          onChange={(e) => setReplace(e.target.checked)}
+          className="accent-violet-400"
+        />
+      </label>
+
+      <Button
+        size="sm"
+        className="w-full bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 hover:border-violet-400/50"
+        onClick={handleSave}
+      >
+        Apply
+      </Button>
+
+      <StoredVectorsViewer flowId={flowId} nodeId={nodeId} />
+    </div>
+  )
+}
+
 // ─── NodeSidebar ──────────────────────────────────────────────────────────────
 
 export default function NodeSidebar() {
@@ -2428,6 +3111,7 @@ export default function NodeSidebar() {
   })))
 
   const nodes          = useStore(useShallow((s) => s.nodes))
+  const flowId         = useStore((s) => s.flowId)
   const updateNodeData = useStore((s) => s.updateNodeData)
   const [saved, setSaved] = useState(false)
 
@@ -2504,6 +3188,17 @@ export default function NodeSidebar() {
           )}
           {node?.data.nodeType === 'database' && (
             <DatabaseForm config={node.data.config} onSave={handleSave} />
+          )}
+          {node?.data.nodeType === 'embedding' && (
+            <EmbeddingForm config={node.data.config} onSave={handleSave} />
+          )}
+          {node?.data.nodeType === 'vector' && (
+            <VectorForm
+              config={node.data.config}
+              onSave={handleSave}
+              flowId={flowId}
+              nodeId={selectedNodeId}
+            />
           )}
           {node?.data.nodeType === 'output' && (
             <OutputHistory history={(node.data.runHistory ?? []) as RunHistoryEntry[]} />

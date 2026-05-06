@@ -6,8 +6,10 @@ import { handleLLM } from './handlers/llm'
 import { handleOutput } from './handlers/output'
 import { handleTool } from './handlers/tool'
 import { handleDatabase } from './handlers/database'
+import { handleEmbedding } from './handlers/embedding'
+import { handleVector } from './handlers/vector'
 
-const ANNOTATION_TYPES = new Set(['shape', 'text', 'drawing'])
+const ANNOTATION_TYPES = new Set(['shape', 'text', 'drawing', 'arrow'])
 
 export async function execute(
   graph: FlowGraph,
@@ -40,7 +42,8 @@ export async function execute(
     const inContext: NodeContext = parentContexts.reduce<NodeContext>(
       (acc, ctx) => ({ ...acc, ...ctx }),
       {
-        input: userInput,
+        input:  userInput,
+        flowId: graph.id,
         ...(fileData    ? { fileData }    : {}),
         ...(sessionKeys ? { sessionKeys } : {}),
       },
@@ -68,6 +71,14 @@ export async function execute(
 
         case 'database':
           outContext = await handleDatabase(node.id, node.data.config as unknown as DBNodeConfig, inContext, emit)
+          break
+
+        case 'embedding':
+          outContext = await handleEmbedding(node.id, node.data.config as Record<string, unknown>, inContext, emit)
+          break
+
+        case 'vector':
+          outContext = await handleVector(node.id, node.data.config as Record<string, unknown>, inContext, emit)
           break
 
         case 'output':
