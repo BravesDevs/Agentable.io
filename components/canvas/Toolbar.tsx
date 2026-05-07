@@ -223,6 +223,60 @@ function RunDialog({ open, onClose, onSubmit, inputType, maxSizeKB, allowedExten
   )
 }
 
+// ─── New canvas confirmation dialog (unsaved-state guard) ─────────────────────
+
+function NewCanvasDialog({
+  open, onClose, onSave, onDiscard, saving,
+}: {
+  open:      boolean
+  onClose:   () => void
+  onSave:    () => void
+  onDiscard: () => void
+  saving:    boolean
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !saving) onClose() }}>
+      <DialogContent className="max-w-md bg-white border border-[#d1d9e0] text-[#1f2328] p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b border-[#d1d9e0]">
+          <DialogTitle className="text-sm font-semibold text-[#1f2328]">Save to DB?</DialogTitle>
+          <DialogDescription className="text-[12px] text-[#59636e] mt-1 leading-relaxed">
+            You have unsaved changes on the current canvas. Save them before starting a new one?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="px-6 py-3 border-t border-[#d1d9e0] gap-2 sm:gap-2 bg-[#f6f8fa]">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={saving}
+            className="h-7 text-xs border-[#d1d9e0] bg-white text-[#1f2328] hover:bg-[#f6f8fa] hover:text-[#1f2328]"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={saving}
+            className="h-7 text-xs border-[#d1d9e0] bg-white text-[#cf222e] hover:bg-[#fff5f5] hover:text-[#a40e26] hover:border-[#cf222e]/40"
+            onClick={onDiscard}
+          >
+            No, discard
+          </Button>
+          <Button
+            size="sm"
+            autoFocus
+            disabled={saving}
+            className="h-7 text-xs bg-[#1f883d] hover:bg-[#1a7f37] text-white border border-[#1a7f37] disabled:opacity-60"
+            onClick={onSave}
+          >
+            {saving ? 'Saving…' : 'Yes, save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Reset confirmation dialog ────────────────────────────────────────────────
 
 function ResetDialog({
@@ -280,16 +334,19 @@ export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
   const nodes      = useStore((s) => s.nodes)
   const edges      = useStore((s) => s.edges)
   const runId      = useStore((s) => s.runId)
+  const dirty      = useStore((s) => s.dirty)
   const loadGraph    = useStore((s) => s.loadGraph)
   const clearRunState = useStore((s) => s.clearRunState)
+  const markSaved    = useStore((s) => s.markSaved)
   const { runFlow, stopRun } = useSSERunner()
 
-  const [dialogOpen, setDialogOpen]   = useState(false)
-  const [resetOpen,   setResetOpen]   = useState(false)
-  const [editingName, setEditingName] = useState(false)
-  const [savingName,  setSavingName]  = useState(false)
-  const [savingFlow,  setSavingFlow]  = useState(false)
-  const nameInputRef                  = useRef<HTMLInputElement>(null)
+  const [dialogOpen,   setDialogOpen]   = useState(false)
+  const [resetOpen,    setResetOpen]    = useState(false)
+  const [newCanvasOpen, setNewCanvasOpen] = useState(false)
+  const [editingName,  setEditingName]  = useState(false)
+  const [savingName,   setSavingName]   = useState(false)
+  const [savingFlow,   setSavingFlow]   = useState(false)
+  const nameInputRef                    = useRef<HTMLInputElement>(null)
 
   // Read input node config to shape the run dialog
   const inputNode        = nodes.find((n) => n.data.nodeType === 'input')
@@ -332,8 +389,8 @@ export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
     }
   }
 
-  async function handleSaveAll() {
-    if (!flowId) return
+  async function saveWorkflow(): Promise<boolean> {
+    if (!flowId) return false
     setSavingFlow(true)
     try {
       const storeNodes = useStore.getState().nodes
@@ -347,20 +404,55 @@ export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
         }),
       })
       if (!r.ok) throw new Error(`PATCH failed (${r.status})`)
+      markSaved()
       toast.success('Saved', { description: `${storeNodes.length} nodes · ${storeEdges.length} edges` })
+      return true
     } catch (err) {
       console.error(err)
       toast.error('Save failed')
+      return false
     } finally {
       setSavingFlow(false)
     }
   }
 
-  function handleReset() {
+  async function handleSaveAll() {
+    await saveWorkflow()
+  }
+
+  function resetCanvas() {
     loadGraph([], [])
     clearRunState()
+  }
+
+  function handleReset() {
+    resetCanvas()
     setResetOpen(false)
     toast.success('Canvas cleared')
+  }
+
+  function handleNewCanvasClick() {
+    if (!flowId || isRunning) return
+    if (dirty) {
+      setNewCanvasOpen(true)
+      return
+    }
+    resetCanvas()
+    toast.success('New canvas')
+  }
+
+  async function handleNewCanvasSave() {
+    const ok = await saveWorkflow()
+    if (!ok) return
+    resetCanvas()
+    setNewCanvasOpen(false)
+    toast.success('New canvas')
+  }
+
+  function handleNewCanvasDiscard() {
+    resetCanvas()
+    setNewCanvasOpen(false)
+    toast.success('New canvas')
   }
 
   const canEditName = !!flowId && !savingName
@@ -417,8 +509,25 @@ export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
 
         <Separator orientation="vertical" className="h-6 bg-[#d1d9e0]" />
 
-        {/* Reset / Save */}
+        {/* New / Reset / Save */}
         <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!flowId || isRunning}
+            onClick={handleNewCanvasClick}
+            title={isRunning ? 'Stop the run before starting a new canvas' : dirty ? 'Save or discard, then start fresh' : 'Start a new canvas'}
+            className="h-7 text-xs border-[#d1d9e0] bg-white text-[#1f2328] hover:bg-[#f6f8fa] hover:text-[#0969da] hover:border-[#0969da]/40 disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.7" className="mr-1">
+              <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" strokeLinejoin="round" />
+              <path d="M14 3v6h6" strokeLinejoin="round" />
+              <path d="M12 12v6M9 15h6" strokeLinecap="round" />
+            </svg>
+            New
+            {dirty && <span aria-hidden className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#bf8700]" />}
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -508,6 +617,14 @@ export default function Toolbar({ flowId, flowName, onRename }: ToolbarProps) {
         onConfirm={handleReset}
         nodeCount={nodes.length}
         edgeCount={edges.length}
+      />
+
+      <NewCanvasDialog
+        open={newCanvasOpen}
+        onClose={() => setNewCanvasOpen(false)}
+        onSave={handleNewCanvasSave}
+        onDiscard={handleNewCanvasDiscard}
+        saving={savingFlow}
       />
     </>
   )

@@ -89,6 +89,7 @@ interface State {
   edges:          AgentEdge[]
   // flow
   flowId:         string | null
+  dirty:          boolean
   // run
   runId:          string | null
   // ui
@@ -108,6 +109,7 @@ interface Actions {
   loadGraph:      (nodes: AgentNode[], edges: AgentEdge[]) => void
   // flow
   setFlowId:      (id: string | null) => void
+  markSaved:      () => void
   // run
   setRunId:          (id: string | null) => void
   setRunStatus:      (nodeId: string, status: RunStatus, output?: string, meta?: RunMeta) => void
@@ -130,6 +132,7 @@ export const useStore = create<State & Actions>()((set) => ({
   nodes:          [],
   edges:          [],
   flowId:         null,
+  dirty:          false,
   runId:          null,
   selectedNodeId: null,
   sidebarOpen:    false,
@@ -138,10 +141,22 @@ export const useStore = create<State & Actions>()((set) => ({
 
   // ── graph actions ──────────────────────────────────────────────────────────
   onNodesChange: (changes) =>
-    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) })),
+    set((s) => {
+      const meaningful = changes.some((c) => c.type !== 'select' && c.type !== 'dimensions')
+      return {
+        nodes: applyNodeChanges(changes, s.nodes),
+        ...(meaningful ? { dirty: true } : {}),
+      }
+    }),
 
   onEdgesChange: (changes) =>
-    set((s) => ({ edges: applyEdgeChanges(changes, s.edges) })),
+    set((s) => {
+      const meaningful = changes.some((c) => c.type !== 'select')
+      return {
+        edges: applyEdgeChanges(changes, s.edges),
+        ...(meaningful ? { dirty: true } : {}),
+      }
+    }),
 
   onConnect: (connection) =>
     set((s) => ({
@@ -150,22 +165,26 @@ export const useStore = create<State & Actions>()((set) => ({
         animated: true,
         style: { stroke: '#00ff88', strokeWidth: 1.5, opacity: 0.7 },
       }, s.edges),
+      dirty: true,
     })),
 
   addNode: (node) =>
-    set((s) => ({ nodes: [...s.nodes, node] })),
+    set((s) => ({ nodes: [...s.nodes, node], dirty: true })),
 
   updateNodeData: (id, partial) =>
     set((s) => ({
       nodes: s.nodes.map((n) =>
         n.id === id ? { ...n, data: { ...n.data, ...partial } } : n
       ),
+      dirty: true,
     })),
 
-  loadGraph: (nodes, edges) => set({ nodes, edges }),
+  loadGraph: (nodes, edges) => set({ nodes, edges, dirty: false }),
 
   // ── flow actions ───────────────────────────────────────────────────────────
   setFlowId: (id) => set({ flowId: id }),
+
+  markSaved: () => set({ dirty: false }),
 
   // ── run actions ────────────────────────────────────────────────────────────
   setRunId: (id) => set({ runId: id }),
