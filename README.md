@@ -44,36 +44,56 @@ A TypeScript-native drag-and-drop canvas for building, running, and deploying AI
 - pnpm (`npm i -g pnpm`)
 - A [Neon](https://neon.tech) Postgres database (free tier works)
 - An Anthropic API key and/or OpenAI API key
+- An [Auth0](https://auth0.com) tenant (free tier works)
 
 ### 1. Clone and install
 
 ```bash
-git clone <repo-url>
-cd agentable
+git clone https://github.com/BravesDevs/Agentable.io.git
+cd Agentable.io
 pnpm install
 ```
 
 ### 2. Environment variables
 
-Create `.env.local` in the project root:
+Copy `sample.env` to `.env.local` in the project root:
+
+```bash
+cp sample.env .env.local
+```
+
+Then fill in each value. Here's where to get them:
 
 ```env
 # Database — Neon serverless Postgres
-DATABASE_URL=postgres://...
+# Get from: https://console.neon.tech → create project → Connection Details → copy the pooled connection string
+DATABASE_URL="postgres://user:password@ep-xxx.neon.tech/dbname?sslmode=require"
 
-# LLM providers (add whichever you use)
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+# Anthropic (Claude) API key
+# Get from: https://console.anthropic.com/settings/keys → "Create Key"
+ANTHROPIC_API_KEY="sk-ant-..."
 
-# Observability (optional — free 50k events/month)
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_HOST=https://cloud.langfuse.com
+# OpenAI API key
+# Get from: https://platform.openai.com/api-keys → "Create new secret key"
+OPENAI_API_KEY="sk-..."
 
-# Rate limiting (optional — Upstash Redis)
-UPSTASH_REDIS_REST_URL=https://...
-UPSTASH_REDIS_REST_TOKEN=...
+# Secret used to sign/verify per-flow API tokens for the public /api/v1/flows/:id/run endpoint
+# Generate locally with: `openssl rand -hex 32`
+API_KEY_SECRET="<random-64-char-hex-string>"
+
+# Local development user id (single-user mode — matches NEXT_PUBLIC_DEV_USER_ID convention)
+# Any non-empty string works for local dev, e.g. "demo" or your email
+DEV_USER_ID="demo"
+
+# Auth0 Configuration
+# Create a tenant at https://manage.auth0.com → Applications → Create Application
+# Choose "Regular Web Application" and grab the values from the application's Settings tab.
+AUTH0_DOMAIN="your-tenant.us.auth0.com"   # Settings → Domain
+CLIENT_ID="..."                            # Settings → Client ID
+CLIENT_SECRET="..."                        # Settings → Client Secret
 ```
+
+> **Tip:** Never commit `.env.local`. It's already gitignored. The `sample.env` file in the repo is the source of truth for the variable list — keep it in sync if you add new vars.
 
 ### 3. Push the database schema
 
