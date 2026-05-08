@@ -1,4 +1,4 @@
-# AgentCraft — Visual AI Agent Builder
+# Agentable — Visual AI Agent Builder
 
 A TypeScript-native drag-and-drop canvas for building, running, and deploying AI agents. Wire up LLMs, tools, memory, and file inputs visually — then ship as a live REST endpoint in one click.
 
@@ -49,7 +49,7 @@ A TypeScript-native drag-and-drop canvas for building, running, and deploying AI
 
 ```bash
 git clone <repo-url>
-cd crafter
+cd agentable
 pnpm install
 ```
 
@@ -165,7 +165,7 @@ data: {"runId":"abc","status":"done"}
 ## Project Structure
 
 ```
-crafter/
+agentable/
 ├── app/
 │   ├── page.tsx                      # Canvas page
 │   └── api/v1/

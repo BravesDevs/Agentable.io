@@ -1,4 +1,4 @@
-# Multi-stage build for AgentCraft Next.js application
+# Multi-stage build for agentable Next.js application
 # Stage 1: Dependencies
 FROM node:22-alpine AS dependencies
 WORKDIR /app

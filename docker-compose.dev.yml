@@ -3,18 +3,18 @@
 version: '3.9'
 
 services:
-  # AgentCraft Next.js Application
+  # Agentable Next.js Application
   app:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: agentcraft-app-dev
+    container_name: agentable-app-dev
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: development
       NEXT_TELEMETRY_DISABLED: "1"
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/agentcraft
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/agentable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
@@ -43,11 +43,11 @@ services:
   # PostgreSQL Database for local development
   postgres:
     image: postgres:16-alpine
-    container_name: agentcraft-db-dev
+    container_name: agentable-db-dev
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: agentcraft
+      POSTGRES_DB: agentable
     ports:
       - "5432:5432"
     volumes:
@@ -70,5 +70,5 @@ volumes:
 
 networks:
   default:
-    name: agentcraft-dev-network
+    name: agentable-dev-network
     driver: bridge

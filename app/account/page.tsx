@@ -14,7 +14,7 @@ export default async function AccountPage() {
             <div className="w-6 h-6 rounded-md bg-gradient-to-br from-white to-[#9198a1] flex items-center justify-center text-[#0d1117] text-[11px] font-bold">
               A
             </div>
-            <span>AgentCraft</span>
+            <span>Agentable</span>
           </Link>
         </nav>
       </header>

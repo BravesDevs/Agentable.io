@@ -1,4 +1,4 @@
-# Docker build and deployment guide for AgentCraft
+# Docker build and deployment guide for Agentable
 
 ## Quick Start
 
@@ -6,7 +6,7 @@
 
 ```bash
 # Build the Docker image
-docker build -t agentcraft:latest .
+docker build -t agentable:latest .
 
 # Run with docker-compose
 docker-compose up -d
@@ -73,7 +73,7 @@ docker-compose -f docker-compose.dev.yml logs -f
 - **Services**: Next.js app + PostgreSQL
 - **Hot Reload**: Enabled via volume mounts
 - **Database**: PostgreSQL 16 Alpine
-- **Network**: agentcraft-dev-network
+- **Network**: agentable-dev-network
 
 ## Common Commands
 
@@ -102,7 +102,7 @@ docker-compose build --no-cache
 
 ### Access PostgreSQL (dev only)
 ```bash
-docker-compose -f docker-compose.dev.yml exec postgres psql -U postgres -d agentcraft
+docker-compose -f docker-compose.dev.yml exec postgres psql -U postgres -d agentable
 ```
 
 ### Push migrations (dev)

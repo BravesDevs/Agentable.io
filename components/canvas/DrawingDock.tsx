@@ -179,7 +179,7 @@ export default function DrawingDock() {
       const w = typeof window !== 'undefined' ? window.innerWidth : 1280
       return { x: Math.max(180, Math.floor(w / 2 - 220)), y: 12 }
     },
-    'agentcraft:drawing-dock-pos',
+    'agentable:drawing-dock-pos',
   )
 
   return (

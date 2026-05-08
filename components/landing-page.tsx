@@ -86,7 +86,7 @@ function Nav() {
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <Link href="#top" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <LogoMark />
-          <span>AgentCraft</span>
+          <span>Agentable</span>
         </Link>
 
         <ul className="hidden md:flex items-center gap-7 text-[13px] text-[#9198a1]">
@@ -397,13 +397,13 @@ function Footer() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="flex items-center gap-2 text-sm">
             <LogoMark />
-            <span className="font-semibold">AgentCraft</span>
+            <span className="font-semibold">Agentable</span>
             <span className="text-[#6e7681]">— visual agents for TypeScript.</span>
           </div>
 
           <div className="flex items-center gap-3">
             <a
-              href="https://github.com/BravesDevs/AgentCraft"
+              href="https://github.com/BravesDevs/Agentable"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border border-white/15 bg-white/5 hover:bg-white/10 transition-colors"
@@ -416,7 +416,7 @@ function Footer() {
         </div>
 
         <div className="mt-8 pt-6 border-t border-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-[11px] text-[#6e7681]">
-          <span>© 2026 AgentCraft. MIT licensed.</span>
+          <span>© 2026 Agentable. MIT licensed.</span>
           <div className="flex items-center gap-4">
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#how"      className="hover:text-white transition-colors">How it works</a>

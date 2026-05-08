@@ -54,8 +54,8 @@ export function getAuth0Config(): Auth0Config {
     clientSecret,
     sessionSecret,
     scope:       'openid profile email',
-    cookieName:  'agentcraft_session',
-    stateCookie: 'agentcraft_oauth_state',
+    cookieName:  'agentable_session',
+    stateCookie: 'agentable_oauth_state',
     sessionTTL:  60 * 60 * 24 * 7,   // 7 days
   }
 }

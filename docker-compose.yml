@@ -1,12 +1,12 @@
 version: '3.9'
 
 services:
-  # AgentCraft Next.js Application
+  # Agentable Next.js Application
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: agentcraft-app
+    container_name: agentable-app
     ports:
       - "3000:3000"
     environment:
@@ -16,7 +16,7 @@ services:
       
       # Database (Neon PostgreSQL - production)
       # For local development with PostgreSQL, uncomment the postgres service below
-      # and use: postgresql://postgres:postgres@postgres:5432/agentcraft
+      # and use: postgresql://postgres:postgres@postgres:5432/agentable
       DATABASE_URL: ${DATABASE_URL}
       
       # LLM API Keys
@@ -62,11 +62,11 @@ services:
   # Uncomment below if you want to use a local PostgreSQL instead of Neon
   # postgres:
   #   image: postgres:16-alpine
-  #   container_name: agentcraft-db
+  #   container_name: agentable-db
   #   environment:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
-  #     POSTGRES_DB: agentcraft
+  #     POSTGRES_DB: agentable
   #   ports:
   #     - "5432:5432"
   #   volumes:
@@ -87,5 +87,5 @@ volumes:
 # Networks
 networks:
   default:
-    name: agentcraft-network
+    name: agentable-network
     driver: bridge

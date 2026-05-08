@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentCraft",
-  description: "AgentCraft is a platform for creating and managing AI agents.",
+  title: "Agentable",
+  description: "Agentable is a platform for creating and managing AI agents.",
 };
 
 export default function RootLayout({

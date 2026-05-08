@@ -144,7 +144,7 @@ const PALETTE: PaletteItem[] = [
   },
 ]
 
-export const PALETTE_DRAG_MIME = 'application/agentcraft-node'
+export const PALETTE_DRAG_MIME = 'application/agentable-node'
 
 export default function NodePalette() {
   const runId         = useStore((s) => s.runId)
@@ -168,7 +168,7 @@ export default function NodePalette() {
 
   const { ref: paletteRef, style: paletteStyle, initialized, dragging, handleProps } = useDraggable(
     () => ({ x: 16, y: Math.max(80, Math.floor((typeof window !== 'undefined' ? window.innerHeight : 720) / 2 - 220)) }),
-    'agentcraft:node-palette-pos',
+    'agentable:node-palette-pos',
   )
 
   return (

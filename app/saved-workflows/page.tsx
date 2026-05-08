@@ -38,7 +38,7 @@ export default async function SavedWorkflowsPage() {
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-white to-[#9198a1] text-[11px] font-bold text-[#0d1117]">
               A
             </div>
-            <span>AgentCraft</span>
+            <span>Agentable</span>
           </Link>
           <Link
             href="/canvas"

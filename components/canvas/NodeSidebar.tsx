@@ -25,6 +25,8 @@ import { useStore, type AgentNodeKind, type RunHistoryEntry } from '@/store'
 import { useSessionKeys } from '@/store/sessionKeys'
 import type { DBColumn, DBDriver, DBMode, DBSchema, DBTable, ToolRunSnapshot } from '@/lib/types'
 import { isProviderId, type ProviderId, type ProviderModel } from '@/lib/providers/registry'
+import { InfoIcon } from '@phosphor-icons/react'
+import { AlgorithmInfoModal } from '@/components/canvas/InfoModal'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
 
@@ -2983,6 +2985,7 @@ function VectorForm({
   const [topP,       setTopP]       = useState<number>((config.topP       as number) ?? 0)
   const [injectInto, setInjectInto] = useState<string>((config.injectInto as string) ?? 'context')
   const [replace,    setReplace]    = useState<boolean>(Boolean(config.replace))
+  const [algoInfoOpen, setAlgoInfoOpen] = useState(false)
 
   function handleSave() {
     onSave({ storeName, mode, indexType, metric, topK, topP, injectInto, replace })
@@ -3016,20 +3019,39 @@ function VectorForm({
       </FieldRow>
 
       <FieldRow label="Index Type">
-        <Select value={indexType} onValueChange={setIndexType}>
-          <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-violet-500/30 h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
-            {INDEX_TYPES.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                <span className="font-medium">{t.label}</span>
-                <span className="ml-2 text-white/35 text-[11px]">{t.description}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <Select value={indexType} onValueChange={setIndexType}>
+              <SelectTrigger className="bg-[#1a1a1e] border-white/10 text-white/80 focus:ring-violet-500/30 h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1a1e] border-white/10 text-white/80">
+                {INDEX_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    <span className="font-medium">{t.label}</span>
+                    <span className="ml-2 text-white/35 text-[11px]">{t.description}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAlgoInfoOpen(true)}
+            aria-label={`About ${indexType} algorithm`}
+            title={`About ${indexType.toUpperCase()}`}
+            className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-md border border-white/10 bg-[#1a1a1e] text-white/55 hover:text-violet-300 hover:border-violet-500/40 hover:bg-violet-500/10 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+          >
+            <InfoIcon size={15} weight="regular" />
+          </button>
+        </div>
       </FieldRow>
+
+      <AlgorithmInfoModal
+        open={algoInfoOpen}
+        onOpenChange={setAlgoInfoOpen}
+        algorithmKey={indexType}
+      />
 
       <FieldRow label="Metric">
         <Select value={metric} onValueChange={setMetric}>
