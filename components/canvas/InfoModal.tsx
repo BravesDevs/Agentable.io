@@ -176,43 +176,43 @@ function ResizableShell({
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-          {/* Header */}
-          <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-white/8 shrink-0 bg-[#131316]">
-            <div className="min-w-0">
-              <RadixDialog.Title className="text-[13px] font-semibold tracking-wide text-white/90 truncate">
-                {title}
-              </RadixDialog.Title>
-              {subtitle && (
-                <RadixDialog.Description
-                  id="am-modal-subtitle"
-                  className="mt-1 text-[11px] text-white/50 leading-relaxed"
-                >
-                  {subtitle}
-                </RadixDialog.Description>
-              )}
-            </div>
-            <RadixDialog.Close
-              aria-label="Close"
-              className="shrink-0 rounded-md p-1 text-white/50 hover:text-white hover:bg-white/8 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500/40"
-            >
-              <XIcon size={14} weight="bold" />
-            </RadixDialog.Close>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-white/8 shrink-0 bg-[#131316]">
+          <div className="min-w-0">
+            <RadixDialog.Title className="text-[13px] font-semibold tracking-wide text-white/90 truncate">
+              {title}
+            </RadixDialog.Title>
+            {subtitle && (
+              <RadixDialog.Description
+                id="am-modal-subtitle"
+                className="mt-1 text-[11px] text-white/50 leading-relaxed"
+              >
+                {subtitle}
+              </RadixDialog.Description>
+            )}
           </div>
+          <RadixDialog.Close
+            aria-label="Close"
+            className="shrink-0 rounded-md p-1 text-white/50 hover:text-white hover:bg-white/8 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+          >
+            <XIcon size={14} weight="bold" />
+          </RadixDialog.Close>
+        </div>
 
-          {/* Scrollable body */}
-          <div className="am-modal__body px-5 py-4">
-            {children}
-          </div>
+        {/* Scrollable body */}
+        <div className="am-modal__body px-5 py-4">
+          {children}
+        </div>
 
-          {/* 4-axis resize handles */}
-          {(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeDir[]).map((d) => (
-            <div
-              key={d}
-              role="separator"
-              aria-orientation={d === 'n' || d === 's' ? 'horizontal' : 'vertical'}
-              className={`am-resize am-resize--${d}`}
-              onPointerDown={onResizePointerDown(d)}
-            />
+        {/* 4-axis resize handles */}
+        {(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeDir[]).map((d) => (
+          <div
+            key={d}
+            role="separator"
+            aria-orientation={d === 'n' || d === 's' ? 'horizontal' : 'vertical'}
+            className={`am-resize am-resize--${d}`}
+            onPointerDown={onResizePointerDown(d)}
+          />
         ))}
       </RadixDialog.Content>
     </RadixDialog.Portal>
